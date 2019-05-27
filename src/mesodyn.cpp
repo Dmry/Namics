@@ -387,6 +387,38 @@ void Mesodyn::set_filename() {
 }
 
 void Mesodyn::register_output() {
+    register_output_param("time", &t, IParameter_writer::CATEGORY::TIMESPAN);
+    register_output_param("timesteps", &timesteps, IParameter_writer::CATEGORY::METADATA);
+    register_output_param("timebetweensaves", &timebetweensaves, IParameter_writer::CATEGORY::METADATA);
+    register_output_param("diffusionconstant", &D, IParameter_writer::CATEGORY::CONSTANT);
+    register_output_param("seed", &seed, IParameter_writer::CATEGORY::METADATA);
+    register_output_param("mean", &mean, IParameter_writer::CATEGORY::METADATA);
+    register_output_param("stddev", &stddev, IParameter_writer::CATEGORY::METADATA);
+    register_output_param("delta_t", &dt, IParameter_writer::CATEGORY::METADATA);
+    register_output_param("cn_ratio", &cn_ratio, IParameter_writer::CATEGORY::METADATA);
+    register_output_param("order_parameter", &order_parameter->get(), IParameter_writer::CATEGORY::TIMESPAN);
+
+
+    Out.emplace_back(new Output(In, Lat, Seg, Sta, Rea, Mol, Sys, New, In[0]->OutputList[0], (int)t, timesteps / timebetweensaves));
+    if (!Out[0]->CheckInput(1)) {
+        cout << "input_error in output " << endl;
+        exit(0);
+    }
+
+    for (size_t i = 0 ; i < Out[0]->OUT_key.size() ; ++i)
+      if( Out[0]->OUT_key[i] == "mesodyn")
+        selected_options.push_back(Out[0]->OUT_prop[i]);
+
+    Writable_file json_file(filename.str(), Writable_filetype::JSON);
+    parameter_writers.push_back( make_shared<JSON_parameter_writer>(json_file) );
+    for (auto& parameter_writer : parameter_writers) {
+      parameter_writer->bind_data(output_params);
+      parameter_writer->register_categories(output_param_categories);
+      parameter_writer->prepare_for_data(selected_options);
+    }
+
+    Out.clear();
+
     for (size_t i = 0 ; i < components.size() ; ++i)
     {
       string description = "component:" + to_string(i);
@@ -396,7 +428,10 @@ void Mesodyn::register_output() {
 
 int Mesodyn::write_output() {
      Out.emplace_back(new Output(In, Lat, Seg, Sta, Rea, Mol, Sys, New, In[0]->OutputList[0], (int)t, timesteps / timebetweensaves));
-     Out[0]->CheckInput(1);
+     if (!Out[0]->CheckInput(1)) {
+        cout << "input_error in output " << endl;
+        exit(0);
+    }
      Out[0]->output_nr = t;
      Out[0]->n_output = timesteps / timebetweensaves;
      New[0]->PushOutput(); 
@@ -427,33 +462,3 @@ int Mesodyn::write_output() {
 
     return 0;
 }
-
-/*      Writable_file kal_file(filename.str(), Writable_filetype::KAL);
-    parameter_writers.push_back( make_shared<Kal_writer>(kal_file) );
-    for (auto& parameter_writer : parameter_writers) {
-      parameter_writer->bind_data(output_params);
-      parameter_writer->prepare_for_data(selected_options);
-    }
-
-    *******************
-
-    Out.emplace_back(new Output(In, Lat, Seg, Sta, Rea, Mol, Sys, New, In[0]->OutputList[0], (int)t, timesteps / timebetweensaves));
-    if (!Out[0]->CheckInput(1)) {
-        cout << "input_error in output " << endl;
-        exit(0);
-    }
-
-    for (size_t i = 0 ; i < Out[0]->OUT_key.size() ; ++i)
-      if( Out[0]->OUT_key[i] == "mesodyn")
-        selected_options.push_back(Out[0]->OUT_prop[i]);
-
-    register_output_param("time", &t);
-    register_output_param("timesteps", &timesteps);
-    register_output_param("timebetweensaves", &timebetweensaves);
-    register_output_param("diffusionconstant", &D);
-    register_output_param("seed", &seed);
-    register_output_param("mean", &mean);
-    register_output_param("stddev", &stddev);
-    register_output_param("delta_t", &dt);
-    register_output_param("cn_ratio", &cn_ratio);
-    register_output_param("order_parameter", &order_parameter->get());*/

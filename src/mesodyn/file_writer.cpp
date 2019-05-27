@@ -15,7 +15,8 @@ std::map<Writable_filetype, std::string> Writable_file::extension_map {
     {Writable_filetype::VTK_STRUCTURED_GRID, "vtk"},
     {Writable_filetype::VTK_STRUCTURED_POINTS, "vtk"},
     {Writable_filetype::CSV, "csv"},
-    {Writable_filetype::PRO, "pro"}
+    {Writable_filetype::PRO, "pro"},
+    {Writable_filetype::JSON, "json"}
 };
 
 Writable_file::Writable_file(const std::string filename_, Writable_filetype filetype_, int identifier_)
@@ -320,8 +321,13 @@ IParameter_writer::IParameter_writer(Writable_file file_)
     m_filestream.precision(configuration.precision);
 }
 
-void IParameter_writer::bind_data(map< string, shared_ptr<IOutput_ptr>>& param_) {
-    m_params = param_;
+void IParameter_writer::bind_data(map< string, shared_ptr<IOutput_ptr>>& params_)
+{
+    m_params = params_;
+}
+
+void IParameter_writer::register_categories(std::map<string, CATEGORY>& category_) {
+    m_categories = category_;
 }
 
 Kal_writer::Kal_writer(Writable_file file_)
@@ -384,4 +390,125 @@ void Csv_parameter_writer::prepare_for_data(vector<string>& selected_variables_)
     m_filestream << '\n';
 
     m_filestream.close();
+}
+
+
+JSON_parameter_writer::JSON_parameter_writer(Writable_file file_)
+: IParameter_writer(file_)
+{
+    
+}
+
+JSON_parameter_writer::~JSON_parameter_writer() {
+    if (m_state == STATE::IS_OPEN)
+        finalize();
+}
+
+void JSON_parameter_writer::prepare_for_data(std::vector<std::string>& selected_variables_) {
+    m_selected_variables = selected_variables_;
+
+    preprocess_categories();
+
+    // Select variables from metadata and constants
+
+    partition_selected_variables(m_metadata, m_selected_metadata);
+    partition_selected_variables(m_constants, m_selected_constants);
+    partition_selected_variables(m_constants, m_selected_timespan);
+
+    m_filestream.open(m_file.get_filename());
+
+    open_json();
+
+    write_list(m_selected_metadata);
+
+    open_object("Constants");
+    write_list(m_selected_constants);
+    close_object();
+
+    open_array("Time Series");
+
+    m_filestream.close();
+}
+
+void JSON_parameter_writer::finalize() {
+    m_filestream.open(m_file.get_filename(), ios_base::app);
+    close_array();
+    close_json();
+    m_state = STATE::IS_CLOSED;
+    m_filestream.close();
+}
+
+void JSON_parameter_writer::write() {
+    m_filestream.open(m_file.get_filename(), ios_base::app);
+
+    write_array_object(m_selected_timespan);
+
+    m_filestream.close();
+}
+
+void JSON_parameter_writer::partition_selected_variables(std::vector<std::string>& partition, std::vector<std::string>& target) {
+    auto it = std::partition(m_selected_variables.begin(), m_selected_variables.end(), [partition](std::string variable) {
+        return std::find(partition.begin(), partition.end(), variable) != partition.end();
+    });
+
+    target.clear();
+
+    std::copy(m_selected_variables.begin(), it, target.begin());
+}
+
+void JSON_parameter_writer::preprocess_categories() {
+    for (auto const& entry : m_categories)
+        switch (entry.second) { //CATEGORY enum
+            case IParameter_writer::CATEGORY::METADATA:
+                m_metadata.push_back(entry.first);
+            case IParameter_writer::CATEGORY::CONSTANT:
+                m_constants.push_back(entry.first);
+            case IParameter_writer::CATEGORY::TIMESPAN:
+                m_timespan.push_back(entry.first);
+        }
+}
+
+void JSON_parameter_writer::write_list(std::vector<std::string>& descriptions) {
+    for (auto itt = descriptions.begin(); itt != descriptions.end(); ++itt) {
+        m_filestream << "\t\"" << *itt << "\": \"" << m_params[*itt]->data() << "\"";
+        if (itt != descriptions.end()-1)
+            m_filestream << ",";
+        m_filestream << "\n";
+    }
+}
+
+JSON_parameter_writer::STATE JSON_parameter_writer::get_state() {
+    return m_state;
+}
+
+void JSON_parameter_writer::write_array_object(std::vector<std::string>& descriptions) {
+    m_filestream << "{\n";
+    write_list(descriptions);
+    m_filestream << "}\n";
+}
+
+void JSON_parameter_writer::open_json() {
+    m_state = STATE::IS_OPEN;
+    m_filestream << "{\n";
+}
+
+void JSON_parameter_writer::close_json() {
+    m_state = STATE::IS_CLOSED;
+    m_filestream << "}\n";
+}
+
+void JSON_parameter_writer::open_object(const std::string& description) {
+    m_filestream << "\"" << description << "\": {\n";
+}
+
+void JSON_parameter_writer::close_object() {
+    m_filestream << "}\n";
+}
+
+void JSON_parameter_writer::open_array(const std::string& description) {
+    m_filestream << "\"" << description << "\": [\n";
+}
+
+void JSON_parameter_writer::close_array() {
+    m_filestream << "]\n";
 }

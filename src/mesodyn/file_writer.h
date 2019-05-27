@@ -21,7 +21,8 @@ enum class Writable_filetype
     CSV,
     VTK_STRUCTURED_GRID,
     VTK_STRUCTURED_POINTS,
-    PRO
+    PRO,
+    JSON,
 };
 
 typedef double Real;
@@ -162,6 +163,13 @@ class IParameter_writer
     public:
         IParameter_writer(Writable_file);
 
+        enum class CATEGORY {
+            TIMESPAN,
+            CONSTANT,
+            METADATA,
+        };
+
+        typedef std::map<string, CATEGORY> Category_map;
         typedef std::map<string, shared_ptr<IOutput_ptr>> Prop_map;
 
         struct Configuration {
@@ -172,13 +180,54 @@ class IParameter_writer
         virtual void write() = 0;
         virtual void prepare_for_data(vector<string>&) = 0;
         virtual void bind_data(Prop_map&);
+        virtual void register_categories(Category_map&);
         
 
     protected:
+        Category_map m_categories;
         Prop_map m_params;
-        vector<string> m_selected_variables;
+        std::vector<std::string> m_selected_variables;
         Writable_file m_file;
         std::ofstream m_filestream;
+};
+
+class JSON_parameter_writer : public IParameter_writer
+{
+    public:
+        JSON_parameter_writer(Writable_file);
+        ~JSON_parameter_writer();
+
+
+        void write();
+        void prepare_for_data(vector<string>&);
+
+        enum class STATE {
+            NONE,
+            IS_OPEN,
+            IS_CLOSED,
+        };
+
+        STATE get_state();
+        void finalize();
+        
+    private:
+        STATE m_state;
+        std::vector<std::string> m_constants;
+        std::vector<std::string> m_selected_constants;
+        std::vector<std::string> m_metadata;
+        std::vector<std::string> m_selected_metadata;
+        std::vector<std::string> m_timespan;
+        std::vector<std::string> m_selected_timespan;
+        void partition_selected_variables(std::vector<std::string>&, std::vector<std::string>&);
+        void preprocess_categories();
+        void write_list(std::vector<std::string>&);
+        void write_array_object(std::vector<std::string>&);
+        void open_json();
+        void close_json();
+        void open_object(const std::string&);
+        void close_object();
+        void open_array(const std::string&);
+        void close_array();
 };
 
 class Kal_writer : public IParameter_writer
