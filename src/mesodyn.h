@@ -117,6 +117,8 @@ private:
   ostringstream filename;
   void set_filename();
   map<std::string, shared_ptr<IOutput_ptr> > output_params;
+  map<std::string, IParameter_writer::CATEGORY > output_param_categories;
+
   vector<shared_ptr<IParameter_writer>> parameter_writers;
   vector<shared_ptr<IProfile_writer>> profile_writers;
   map<std::string, shared_ptr<IOutput_ptr> > output_profiles;
@@ -178,9 +180,10 @@ public:
   }
 
   template <typename Datatype>
-  void register_output_param(string description, Datatype* variable) {
+  void register_output_param(string description, Datatype* variable, IParameter_writer::CATEGORY category=IParameter_writer::CATEGORY::TIMESPAN) {
     shared_ptr<IOutput_ptr> param = make_shared<Output_ptr<Datatype>>(variable);
     Mesodyn::output_params[description] = param;
+    Mesodyn::output_param_categories[description] = category;
   }
 
   template <typename Datatype>
