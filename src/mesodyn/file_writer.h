@@ -43,14 +43,14 @@ class Output_ptr : public IOutput_ptr
 {
     public:
         Output_ptr(T* parameter_)
-        : parameter{parameter_}
+        : parameter{const_cast<T*>(parameter_)}
         {
         }
 
         string data(const size_t offset = 0) override
         {
 
-            const T* data = new T;
+            T* data = new typename std::remove_const<T>::type;
 
         #ifdef PAR_MESODYN
             TransferDataToHost(const_cast<T*>(data), const_cast<T*>(parameter+offset), 1);
@@ -63,7 +63,7 @@ class Output_ptr : public IOutput_ptr
             return out.str();
         }
 
-        const T* parameter;
+        T* parameter;
 };
 
 class Writable_file {
@@ -221,6 +221,7 @@ class JSON_parameter_writer : public IParameter_writer
         void partition_selected_variables(std::vector<std::string>&, std::vector<std::string>&);
         void preprocess_categories();
         void write_list(std::vector<std::string>&);
+        bool is_number(std::string&);
         void write_array_object(std::vector<std::string>&);
         void open_json();
         void close_json();

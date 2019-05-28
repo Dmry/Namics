@@ -394,7 +394,7 @@ void Csv_parameter_writer::prepare_for_data(vector<string>& selected_variables_)
 
 
 JSON_parameter_writer::JSON_parameter_writer(Writable_file file_)
-: IParameter_writer(file_)
+: IParameter_writer(file_), m_selected_constants(0), m_selected_metadata(0), m_selected_timespan(0)
 {
     
 }
@@ -402,6 +402,10 @@ JSON_parameter_writer::JSON_parameter_writer(Writable_file file_)
 JSON_parameter_writer::~JSON_parameter_writer() {
     if (m_state == STATE::IS_OPEN)
         finalize();
+}
+
+bool JSON_parameter_writer::is_number(std::string& value) {
+    return std::regex_match(value, std::regex(R"(^[\d]{1,}(.[\d]{1,})?e?\-?[\d]+$)"));
 }
 
 void JSON_parameter_writer::prepare_for_data(std::vector<std::string>& selected_variables_) {
@@ -413,7 +417,7 @@ void JSON_parameter_writer::prepare_for_data(std::vector<std::string>& selected_
 
     partition_selected_variables(m_metadata, m_selected_metadata);
     partition_selected_variables(m_constants, m_selected_constants);
-    partition_selected_variables(m_constants, m_selected_timespan);
+    partition_selected_variables(m_timespan, m_selected_timespan);
 
     m_filestream.open(m_file.get_filename());
 
@@ -421,11 +425,17 @@ void JSON_parameter_writer::prepare_for_data(std::vector<std::string>& selected_
 
     write_list(m_selected_metadata);
 
+    m_filestream << ',';
+
     open_object("Constants");
     write_list(m_selected_constants);
     close_object();
 
     open_array("Time Series");
+
+    m_filestream << "{\n";
+    write_list(m_selected_timespan);
+    m_filestream << "}";
 
     m_filestream.close();
 }
@@ -451,9 +461,8 @@ void JSON_parameter_writer::partition_selected_variables(std::vector<std::string
         return std::find(partition.begin(), partition.end(), variable) != partition.end();
     });
 
-    target.clear();
-
-    std::copy(m_selected_variables.begin(), it, target.begin());
+    for ( auto itt = m_selected_variables.begin() ; itt != it ; ++itt)
+        target.push_back(*itt);
 }
 
 void JSON_parameter_writer::preprocess_categories() {
@@ -461,18 +470,33 @@ void JSON_parameter_writer::preprocess_categories() {
         switch (entry.second) { //CATEGORY enum
             case IParameter_writer::CATEGORY::METADATA:
                 m_metadata.push_back(entry.first);
+                break;
             case IParameter_writer::CATEGORY::CONSTANT:
                 m_constants.push_back(entry.first);
+                break;
             case IParameter_writer::CATEGORY::TIMESPAN:
                 m_timespan.push_back(entry.first);
+                break;
         }
 }
 
 void JSON_parameter_writer::write_list(std::vector<std::string>& descriptions) {
     for (auto itt = descriptions.begin(); itt != descriptions.end(); ++itt) {
-        m_filestream << "\t\"" << *itt << "\": \"" << m_params[*itt]->data() << "\"";
+        m_filestream << "\"" << *itt << "\": ";
+
+        string data =  m_params[*itt]->data();
+
+        if (!is_number(data))
+            m_filestream << "\"";
+            
+        m_filestream << m_params[*itt]->data();
+        
+        if (!is_number(data))
+            m_filestream << "\"";
+
         if (itt != descriptions.end()-1)
             m_filestream << ",";
+
         m_filestream << "\n";
     }
 }
@@ -482,9 +506,9 @@ JSON_parameter_writer::STATE JSON_parameter_writer::get_state() {
 }
 
 void JSON_parameter_writer::write_array_object(std::vector<std::string>& descriptions) {
-    m_filestream << "{\n";
+    m_filestream << ",\n{\n";
     write_list(descriptions);
-    m_filestream << "}\n";
+    m_filestream << "}";
 }
 
 void JSON_parameter_writer::open_json() {
@@ -502,7 +526,7 @@ void JSON_parameter_writer::open_object(const std::string& description) {
 }
 
 void JSON_parameter_writer::close_object() {
-    m_filestream << "}\n";
+    m_filestream << "},\n";
 }
 
 void JSON_parameter_writer::open_array(const std::string& description) {
