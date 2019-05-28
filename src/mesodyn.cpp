@@ -67,8 +67,8 @@ Mesodyn::Mesodyn(int start, vector<Input*> In_, vector<Lattice*> Lat_, vector<Se
   cout << "Initializing.." << endl;
 
   initial_conditions();
-  register_output();
   set_filename();
+  register_output();
 
   Writable_file out_file(filename.str(), output_profile_filetype );
   profile_writers.push_back(Profile_writer::Factory::Create(output_profile_filetype, Lat[0], out_file));
@@ -387,15 +387,33 @@ void Mesodyn::set_filename() {
 }
 
 void Mesodyn::register_output() {
-    register_output_param("time", &t, IParameter_writer::CATEGORY::TIMESPAN);
-    register_output_param("timesteps", &timesteps, IParameter_writer::CATEGORY::METADATA);
-    register_output_param("timebetweensaves", &timebetweensaves, IParameter_writer::CATEGORY::METADATA);
+  time_t rawtime;
+  struct tm * timeinfo;
+  char buffer[80];
+
+  time (&rawtime);
+  timeinfo = localtime(&rawtime);
+
+  strftime(buffer,sizeof(buffer),"%d-%m-%Y %H:%M:%S",timeinfo);
+
+
+    string filename_ = filename.str();
+    string timestr(buffer);
+
+    register_output_param("date_created", &timestr, IParameter_writer::CATEGORY::METADATA);
+    register_output_param("filename", &filename_, IParameter_writer::CATEGORY::METADATA);
+    register_output_param("in_file", &In.back()->name, IParameter_writer::CATEGORY::METADATA);
+
+    register_output_param("timesteps", &timesteps, IParameter_writer::CATEGORY::CONSTANT);
+    register_output_param("timebetweensaves", &timebetweensaves, IParameter_writer::CATEGORY::CONSTANT);
     register_output_param("diffusionconstant", &D, IParameter_writer::CATEGORY::CONSTANT);
-    register_output_param("seed", &seed, IParameter_writer::CATEGORY::METADATA);
-    register_output_param("mean", &mean, IParameter_writer::CATEGORY::METADATA);
-    register_output_param("stddev", &stddev, IParameter_writer::CATEGORY::METADATA);
-    register_output_param("delta_t", &dt, IParameter_writer::CATEGORY::METADATA);
-    register_output_param("cn_ratio", &cn_ratio, IParameter_writer::CATEGORY::METADATA);
+    register_output_param("seed", &seed, IParameter_writer::CATEGORY::CONSTANT);
+    register_output_param("mean", &mean, IParameter_writer::CATEGORY::CONSTANT);
+    register_output_param("stddev", &stddev, IParameter_writer::CATEGORY::CONSTANT);
+    register_output_param("delta_t", &dt, IParameter_writer::CATEGORY::CONSTANT);
+    register_output_param("cn_ratio", &cn_ratio, IParameter_writer::CATEGORY::CONSTANT);
+
+    register_output_param("time", &t, IParameter_writer::CATEGORY::TIMESPAN);
     register_output_param("order_parameter", &order_parameter->get(), IParameter_writer::CATEGORY::TIMESPAN);
 
 
@@ -406,7 +424,7 @@ void Mesodyn::register_output() {
     }
 
     for (size_t i = 0 ; i < Out[0]->OUT_key.size() ; ++i)
-      if( Out[0]->OUT_key[i] == "mesodyn")
+      if( Out[0]->OUT_name[i] == "mesodyn")
         selected_options.push_back(Out[0]->OUT_prop[i]);
 
     Writable_file json_file(filename.str(), Writable_filetype::JSON);
