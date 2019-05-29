@@ -106,10 +106,12 @@ class IProfile_writer
 
         static constexpr uint8_t DEFAULT_PRECISION = 14;
 
+        typedef std::map< string, shared_ptr<IOutput_ptr> > Profile_map;
+
     protected:
         Lattice* m_geometry;
         Writable_file m_file;
-        std::map< string, shared_ptr<IOutput_ptr> > m_profiles;
+        Profile_map m_profiles;
         std::ofstream m_filestream;
         Lattice_accessor m_adapter;
 
@@ -249,6 +251,37 @@ class Csv_parameter_writer : public IParameter_writer
 
         void write();
         void prepare_for_data(vector<string>&);
+};
+
+class File_writer_helper
+{
+    public:
+        IParameter_writer::Prop_map output_params;
+        IParameter_writer::Category_map output_param_categories;
+
+        IProfile_writer::Profile_map output_profiles;
+
+        template <typename Datatype>
+        void register_output_param(string description, Datatype* variable, IParameter_writer::CATEGORY category=IParameter_writer::CATEGORY::TIMESPAN) {
+            shared_ptr<IOutput_ptr> param = make_shared<Output_ptr<Datatype>>(variable);
+            output_params[description] = param;
+            output_param_categories[description] = category;
+        }
+
+        template <typename Datatype>
+        void register_output_profile(string description, Datatype* variable) {
+            shared_ptr<IOutput_ptr> profile = make_shared<Output_ptr<Datatype>>(variable);
+            output_profiles[description] = profile;
+        }
+
+        void bind_data_to(shared_ptr<IParameter_writer> param_writer) {
+            param_writer->bind_data(output_params);
+            param_writer->register_categories(output_param_categories);
+        }
+
+        void bind_data_to(shared_ptr<IProfile_writer> profile_writer) {
+            profile_writer->bind_data(output_profiles);
+        }
 };
 
 #endif

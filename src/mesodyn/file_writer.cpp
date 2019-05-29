@@ -69,7 +69,7 @@ IProfile_writer::~IProfile_writer()
 
 void IProfile_writer::bind_data(map< string, shared_ptr<IOutput_ptr>>& profiles_)
 {
-    m_profiles = profiles_;
+    m_profiles.insert(profiles_.begin(), profiles_.end());
 }
 
 void IProfile_writer::bind_subystem_loop(Boundary_mode mode_) {
@@ -323,7 +323,7 @@ IParameter_writer::IParameter_writer(Writable_file file_)
 
 void IParameter_writer::bind_data(map< string, shared_ptr<IOutput_ptr>>& params_)
 {
-    m_params = params_;
+    m_params.insert(params_.begin(), params_.end());
 }
 
 void IParameter_writer::register_categories(std::map<string, CATEGORY>& category_) {
