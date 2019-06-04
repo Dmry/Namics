@@ -70,63 +70,67 @@ class Input {
 	vector<string> StateList;
 	vector<string> ReactionList;
 
-    Input(std::string filename);
-    ~Input() { }
+  Input(std::string filename);
+  ~Input() { }
 
-    OutputInfo output_info;
+  OutputInfo output_info;
 
-    enum TOKENS {
-        LINE,
-        KEY,
-        BRAND,
-        PARAMETER,
-        VALUE,
-    };
+  enum TOKENS {
+      LINE,
+      KEY,
+      BRAND,
+      PARAMETER,
+      VALUE,
+  };
 
-    IInput_parser* m_parser;
-    const vector<tokenized_line> m_file_content;
-    map<string,string> parameter_value_pair;
-    
-    template<typename T>
-	  bool InSet(vector<T>& KEYS, T key) {
-		  for (T& key : KEYS)
-			  if (key == key) return true;
-
-	    return false;
-	}
+  IInput_parser* m_parser;
+  const vector<tokenized_line> m_file_content;
+  map<string,string> parameter_value_pair;
+  
+  template<typename T>
+  bool InSet(vector<T>& KEYS, T key) {
+    auto iter = find(KEYS.begin(), KEYS.end(), key);
+    return iter != KEYS.end();
+  }
 
 	template<typename T>
 	bool InSet(vector<T> & KEYS, int &pos, T key) {
-		for (size_t i = 0 ; i < KEYS.size() ; ++i)
-			if (KEYS[i] == key) {
-				pos = i;
-				return true;
-			}
-	    return false;
-	}
+    auto iter = find(KEYS.begin(), KEYS.end(), key);
+    pos = (int)std::distance(KEYS.begin(), iter);
+    return iter != KEYS.end();
+  }
 
-    template<typename Datatype>
-    Datatype to_value(const string& PARAMETER, Datatype& target) {
-          Datatype value;
-          std::istringstream buffer{PARAMETER};
-          buffer >> value;
-          target = value;
-    }
+  template<typename Datatype>
+  Datatype to_value(const string& PARAMETER, Datatype& target) {
+        Datatype value;
+        std::istringstream buffer{PARAMETER};
+        buffer >> value;
+        target = value;
+        return value;
+  }
 
-    bool CheckParameters(string key, string brand, int start, std::vector<std::string> &KEYS, std::vector<std::string> &PARAMETERS,std::vector<std::string> &VALUES);
-    std::sregex_iterator NestedGroup(string& input, string& delimiter_open, string& delimiter_close);
-    bool EvenSign(string input, string delimiter_open, string delimiter_close, vector<int>&, vector<int>&);
-    bool EvenSquareBrackets(string exp, vector<int> &open, vector<int> &close);
-    bool EvenBrackets(string exp, vector<int> &open, vector<int> &close);
-    bool ValidateKeys();
-    bool CheckInput(void);
-    string name;
-    bool MakeLists(int start);
-    bool TestNum(std::vector<std::string> &S, string c,int num_low, int num_high, int UptoStartNumber );
-    int GetNumStarts();
-    bool IsDigit( string token );
-    bool is_bool( string token );
-    int Get_int(string, int );
+  bool to_value(const string& PARAMETER, bool& target) {
+        bool value;
+        std::istringstream buffer{PARAMETER};
+        buffer >> std::boolalpha >> value;
+        target = value;
+        return value;
+  }
+
+  bool CheckParameters(string key, string brand, int start, std::vector<std::string> &KEYS, std::vector<std::string> &PARAMETERS,std::vector<std::string> &VALUES);
+  std::sregex_iterator NestedGroup(string& input, string& delimiter_open, string& delimiter_close);
+  bool EvenSign(string input, string delimiter_open, string delimiter_close, vector<int>&, vector<int>&);
+  bool EvenSquareBrackets(string exp, vector<int> &open, vector<int> &close);
+  bool EvenBrackets(string exp, vector<int> &open, vector<int> &close);
+  bool ValidateKeys();
+  bool CheckInput(void);
+  string name;
+  bool MakeLists(int start);
+  bool TestNum(std::vector<std::string> &S, string c,int num_low, int num_high, int UptoStartNumber );
+  int GetNumStarts();
+  bool IsDigit( string token );
+  bool is_bool( string token );
+  int Get_int(string, int );
 	bool Get_int(string, int &, const std::string &);
   bool ArePair(char opening,char closing);
 	bool Get_int(string, int &, int, int, const std::string &);

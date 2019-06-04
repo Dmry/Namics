@@ -47,8 +47,11 @@ vector<tokenized_line> Input_parser::parse() {
 }
 
 bool Input_parser::assert_last_token_start(size_t line_no) {
-	if (m_settings.back()[1] != "start")
-		m_settings.push_back(tokenized_line{ to_string(line_no), "start", " ", " ", " "});
+	if (m_settings.back()[1] != "start") {
+		m_settings.push_back(tokenized_line{ to_string(line_no), "start", " ", " ", " "}); return false;
+	} else {
+		return true;
+	}
 }
 
 bool Input_parser::is_not_start(const string& line) {
@@ -81,14 +84,8 @@ void Input_parser::split(const string& line, const string& delimiter, tokenized_
 }
 
 void Input::split(const string& line, const char& delimiter, tokenized_line& target) {
-    tokenized_line tokens;
-	string compatibility_delimiter = string( 1, delimiter );
-    std::regex sregex("([^\\" + compatibility_delimiter + "]+)");
-    regex_token_iterator<string::const_iterator> end; // default end iterator
-    regex_token_iterator<string::const_iterator> a(line.begin(), line.end(), sregex);
-    while (a!=end)
-        tokens.push_back(*a++);
-    target = tokens;
+	const string compatibility_delimiter = string( 1, delimiter );
+	dynamic_cast<Input_parser*>(m_parser)->split(line, compatibility_delimiter, target);
 }
 
 Input::Input(string filename)
@@ -333,8 +330,9 @@ bool Input::Get_Real(string input, Real &target, Real low, Real high, const  std
 }
 
 bool Input::Get_bool(string input, bool default_value) {
-	bool output;
-	if( is_bool(input) ) return to_value(input, output);
+	bool output = false;
+	if( is_bool(input) )
+		return to_value(input, output);
 	else return default_value;
 }
 
