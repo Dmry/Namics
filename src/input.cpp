@@ -375,7 +375,7 @@ bool Input::Get_int(string input, int &target, const std::string &error) {
 
 bool Input::Get_int(string input, int &target, int low, int high, const std::string &error) {
 	Get_int(input, target, error);
-	if (target<low || target>high) {cout << "Value out of range: " << error << endl ; return false; }
+	if (target<low or target>high) {cout << "Value out of range: " << error << endl ; return false; }
 	else return true;
 }
 
@@ -389,7 +389,7 @@ bool Input::Get_string(string input, string &target, const  std::string &error) 
 }
 bool Input::Get_string(string input, string &target, std::vector<std::string>&options, const std::string &error) {
 	if (!input.empty()) target=input;
-	else {cout << error << endl; return false;}
+	else {cout << error << endl; PrintList(options); return false;}
 
 	if (!InSet(options,target)) {
 		cout << error << " value '" << target << "' is not allowed. Select from: " << endl << PrintList(options);
