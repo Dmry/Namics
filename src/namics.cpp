@@ -131,10 +131,10 @@ int main(int argc, char *argv[])
 
 	// Create input class instance and handle errors(reference above)
 	In.push_back(new Input(filename.str()));
-	if (In[0]->Input_error)
-	{
-		return 0;
-	}
+	//if (In[0]->Input_error)
+//	{
+//		return 0;
+	//}
 	n_starts = In[0]->GetNumStarts();
 	if (n_starts == 0)
 		n_starts++; // Default to 1 start..

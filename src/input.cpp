@@ -17,25 +17,29 @@ vector<tokenized_line> Input_parser::parse() {
 
         for (;getline(m_file, line); ++line_no) {
             if ( is_not_blank(line) and is_not_commented(line) and is_not_start(line)) {
-				vector<string> tokens;
-				vector<string> line_tokens;
+				vector<string> tokens, line_tokens;
 
                 line = discard_whitespace(line);
 
 				tokens.push_back( to_string(line_no) );
 				split(line,":", line_tokens);
 
+				// Copy the line as separate strings (tokens) into the tokens vector
                 std::copy ( line_tokens.begin(), line_tokens.end(), std::back_inserter(tokens));
 
+				// Verify we have a line number and 4 tokens
                 if ( tokens.size() != 5) {
                     cerr << " Line number " << line_no << " does not contain 4 items" << endl;
                     throw ERROR::INCORRECT_TOKEN_COUNT;
                 }
 
+				// Add the tokenized line to the end of the vector that will be returned
                 m_settings.push_back(tokens);
 
+
+			// If the line is commented or blank, do nothing, but if it's start: add start plus line number to the returned vector.
             } else if (is_not_blank(line) and is_not_commented(line) and line == "start")
-				m_settings.push_back({to_string(line_no), "start"});
+				m_settings.push_back({to_string(line_no), "start", " ", " ", " "});
 
         } //finished reading lines
 
@@ -89,42 +93,60 @@ void Input::split(const string& line, const char& delimiter, tokenized_line& tar
 }
 
 Input::Input(string filename)
-: m_parser{new Input_parser(filename)}, m_file_content{m_parser->parse()}, name{filename}
+: m_parser{new Input_parser(filename)}, m_file_content{m_parser->parse()}, name{filename},
+// Listmap: A map that can be accessed using the name of the module.
+ListMap {
+		{"sys" , &SysList}, {"mol" , &MolList}, {"mon", &MonList}, {"alias", &AliasList}, {"lat", &LatList},
+		{"newton", &NewtonList}, {"mesodyn", &MesodynList}, {"cleng", &ClengList}, {"teng", &TengList}, {"output", &OutputList},
+		{"var", &VarList}, {"state", &StateList}, {"reaction", &ReactionList}
+	},
+out_options{ "ana", "vtk", "kal", "pro", "vec", "pos"}
 {
-	KEYS.push_back("start");
-	KEYS.push_back("sys");
-	KEYS.push_back("mol");
-	KEYS.push_back("mon");
-	KEYS.push_back("alias");
- 	KEYS.push_back("lat");
-	KEYS.push_back("newton");
-	KEYS.push_back("mesodyn");
-	KEYS.push_back("cleng");
-	KEYS.push_back("teng");
-	KEYS.push_back("output");
-	KEYS.push_back("var");
-	KEYS.push_back(OutputInfo::IN_CLASS_NAME);
-	KEYS.push_back("state");
-	KEYS.push_back("reaction");
+	// Rangemap: A map that tells the input verification how many of these guys to expect.
+	RangeMap["sys"] = Require_input_range(0,1);
+	RangeMap["mol"] = Require_input_range(1,1000);
+	RangeMap["mon"] = Require_input_range(2,1000);
+	RangeMap["alias"] = Require_input_range(0,1000);
+ 	RangeMap["lat"] = Require_input_range(1,1);
+	RangeMap["newton"] = Require_input_range(0,1);
+	RangeMap["mesodyn"] = Require_input_range(0,1);
+	RangeMap["cleng"] = Require_input_range(0,1);
+	RangeMap["teng"] = Require_input_range(0,1);
+	RangeMap["output"] = Require_input_range(1,1000);
+	RangeMap["var"] = Require_input_range(0,10);
+	RangeMap["state"] = Require_input_range(0,1000);
+	RangeMap["reaction"] = Require_input_range(0,1000);
 
+	// We also want to recognize starts though.
+	KEYS.push_back("start");
+
+	// Add all the keys of the maps above to the KEYS vector for compatibility.
+	for (auto& map : ListMap)
+		KEYS.push_back(map.first);
+
+	// So we can use binary search!
+	std::sort(KEYS.begin(), KEYS.end());
+
+	PreProcess();
 	parseOutputInfo();
 	CheckInput();
 }
 
-std::sregex_iterator Input::NestedGroup(string& input, string& delimiter_open, string& delimiter_close) {
-	std::regex rx = std::regex("(\\" + delimiter_open + ")(.*)(\\" + delimiter_close + ")");
+std::sregex_iterator Input::NestedGroup(std::regex& rx, string& input, string& delimiter_open, string& delimiter_close) {
     return sregex_iterator(input.begin(), input.end(), rx);
 }
 
 bool Input::EvenSign(string input, string delimiter_open, string delimiter_close, vector<int>& open, vector<int>& close) {
-    std::sregex_iterator matches = NestedGroup(input, delimiter_open, delimiter_close);
+	std::regex rx = std::regex("(\\" + delimiter_open + ")(\\w+)(\\" + delimiter_close + ")");
+    std::sregex_iterator matches = sregex_iterator(input.begin(), input.end(), rx);
 	// position 0 is full match, 1 is first bracket, 2 is what is between brackets, 3 is closing bracket
 	if (!matches->empty()) {
-    	open.push_back(matches->position(1));
-    	close.push_back(matches->position(3));
-		EvenSign((*matches)[1].str(), delimiter_open, delimiter_close, open, close);
+		for (auto i = matches ; i != std::sregex_iterator() ; ++i) {
+    		open.push_back(i->position(1));
+    		close.push_back(i->position(3));
+		}
 	}
-    return !regex_match((*matches)[2].str(), regex("([\\" + delimiter_open + "\\" + delimiter_close + "])"));
+    return true;//!regex_match((*matches)[2].str(), regex("([\\" + delimiter_open + "\\" + delimiter_close + "])"));
 }
 
 bool Input::EvenSquareBrackets(string exp, vector<int> &open, vector<int> &close) {
@@ -137,69 +159,92 @@ bool Input::EvenBrackets(string exp, vector<int> &open, vector<int> &close) {
 
 
 int Input::GetNumStarts() {
-	size_t count {0};
-	for (const auto& line : m_file_content)
-		if (line[TOKENS::KEY] == "start") ++count;
-	return count;
+	return m_settings.size();
 }
 
-bool Input::CheckParameters(string key, string brand, int start, std::vector<std::string> &KEYS, std::vector<std::string> &PARAMETERS,std::vector<std::string> &VALUES) {
-	bool success=true;
-	int n_start=0;
+void Input::PreProcess() {
+	int start=1;
+	size_t errors{0};
 
-	for (const auto& line : m_file_content) {
-		if ( line[TOKENS::KEY] == string("start") ) {
-			n_start++;
-		} else if (n_start < start) {
-			if ( line[TOKENS::KEY] == key && line[TOKENS::BRAND] == brand) {
-				string parameter = line[TOKENS::PARAMETER];
-
-				if (std::find(KEYS.begin(), KEYS.end(), parameter) != KEYS.end()) {
-					if (std::count(PARAMETERS.begin(), PARAMETERS.end(), parameter) == 0) {
-						parameter_value_pair[parameter] = line[TOKENS::VALUE]; success = true;
-					} else {
-						success=false; cout <<"After 'start' " << n_start << ", in line " << line[TOKENS::LINE] << " " << key << " property '" << parameter << "' is already defined. "<< endl;
-					}
-
-				} else  {
-					success=false; cout <<"In line " << line[TOKENS::LINE] << " "  << key << " property '" << parameter << "' is unknown. Select from: "<< endl;
-					for (const auto& key : KEYS) std::cout << key << endl;
-				}	 
+	for (const auto line : m_file_content) {
+		if ( line[KEY] == string("start") and line[LINE] != m_file_content.back()[LINE] ) {
+			m_settings[start+1] = m_settings[start];
+			start++;
+		} else {
+			if (m_settings[start][line[KEY]][line[BRAND]].find(line[PARAMETER]) != m_settings[start][line[KEY]][line[BRAND]].end()
+				and find(out_options.begin(), out_options.end(), line[PARAMETER]) != out_options.end()) {
+					cerr << LineError(line) << "is already defined. "<< endl;
+					++errors;
+			} else {
+					m_settings[start][line[KEY]][line[BRAND]][line[PARAMETER]] = line[VALUE];
 			}
-		} else break;
+		}
 	}
+
+	if (errors > 0) {
+		std::cerr << errors << " errors in input, please correct!" << endl;
+		throw INPUT_ERROR::ALREADY_DEFINED;
+	}
+}
+
+
+string Input::LineError(const tokenized_line& line) {
+	ostringstream error_msg;
+	error_msg << "In line " << line[LINE] << " " << line[KEY] << " : " << line[BRAND] << " property '" << line[PARAMETER] << "' ";
+	return error_msg.str();
+}
+
+string Input::PrintList(const std::vector<std::string>& list) {
+	ostringstream error_msg;
+	for (const auto& key : list) error_msg << key << endl;
+	return error_msg.str();
+}
+
+bool Input::ValidateKey(const std::vector<std::string>& KEYS_, const std::string& key) {
+	return std::binary_search(KEYS_.begin(), KEYS_.end(), key);
+}
+
+bool Input::CheckParameters(string key, string brand, int start, std::vector<std::string> &KEYS_, std::vector<std::string> &PARAMETERS,std::vector<std::string> &VALUES) {
+	bool success=true;
+
+	//For faster searching and to make sure people don't rely on the order of vectors...
+	std::sort(KEYS_.begin(), KEYS_.end());
 
 	PARAMETERS.clear(); VALUES.clear();
-	for(auto& parameter_first_value_second : parameter_value_pair) {
-		PARAMETERS.push_back(parameter_first_value_second.first);
-		VALUES.push_back(parameter_first_value_second.second);
+	for(const auto& key_value : m_settings[start][key][brand] ) {
+		if (ValidateKey(KEYS_, key_value.first)) {
+			PARAMETERS.emplace_back(key_value.first);
+			VALUES.emplace_back(key_value.second);
+		}
+		else {
+			std::cerr << key << " : " << brand << " property '" << key_value.first << "' is unknown." << endl;
+			success = false;
+		}
 	}
 
-	return success;
-}
+	if (success == false)
+		std::cerr << "Please select from:" << endl << PrintList(KEYS_);
 
-bool Input::ValidateKeys() {
-	for (const auto& line : m_file_content)
-		if (std::find(KEYS.begin(), KEYS.end(), line[TOKENS::KEY]) == KEYS.end()) {
-			cout << line[TOKENS::KEY] << " is not valid keyword in line " << line[TOKENS::LINE] << endl;
-			cout << "select one of the following:" << endl;
-			for (auto& key : KEYS) cout << key << endl;
-			return false;
-		} else return true;
+	return success;
 }
 
 bool Input::CheckInput(void) {
 	bool success=true;
 
-	vector<string> options { "ana", "vtk", "kal", "pro", "vec", "pos"};
+	for (auto& start : m_settings)
+		for (const auto & output_brand : start.second["output"]   ) {
+			if (std::find(out_options.begin(), out_options.end(), output_brand.first) == out_options.end()) {
+				cout << "Value for output extension '" + output_brand.first + "' not allowed." << endl;
+				success = false;
+			}
 
-	for (const auto& line : m_file_content)
-		if (line[TOKENS::KEY]=="output") {
-			if (std::find(options.begin(), options.end(), line[TOKENS::BRAND]) == options.end()) { cout << "Value for output extension '" + line[TOKENS::BRAND] + "' not allowed." << endl; success = false; }
-			if (std::find(KEYS.begin(), KEYS.end(), line[TOKENS::BRAND]) == KEYS.end()) KEYS.push_back( line[TOKENS::BRAND] );
+			//TODO :Compatibility code: I think this line is used by output.. if not, just move the options directly into the KEYS vector and remove if statement below.
+			if (not std::binary_search(KEYS.begin(), KEYS.end(), output_brand.first)) {
+				KEYS.push_back( output_brand.first );
+				std::sort(KEYS.begin(), KEYS.end());
+			}
 		}
 
-	success = ValidateKeys();
 	parseOutputInfo();
 
 	if (!output_info.isOutputExists()) {
@@ -212,64 +257,66 @@ bool Input::CheckInput(void) {
 
 void Input::parseOutputInfo() {
 	for (auto& line : m_file_content) {
-		if (line[TOKENS::KEY] != OutputInfo::IN_CLASS_NAME) {
+		if (line[KEY] != OutputInfo::IN_CLASS_NAME) {
 			continue;
 		}
-		output_info.addProperty(line[TOKENS::BRAND], line[TOKENS::PARAMETER], line[TOKENS::VALUE]);
+		output_info.addProperty(line[BRAND], line[PARAMETER], line[VALUE]);
 	}
 }
 
 bool Input::MakeLists(int start) {
-	bool success=true;
-	SysList.clear();
-	LatList.clear();
-	NewtonList.clear();
-	MonList.clear();
-	MolList.clear();
-	OutputList.clear();
-	MesodynList.clear();
-	ClengList.clear();
-	TengList.clear();
-	VarList.clear();
-	StateList.clear();
-	ReactionList.clear();
+	bool result = false;
 
-	if (!TestNum(SysList,"sys",0,1,start)) {cout << "There can be no more than 1 'sys name' in the input" << endl; }
-	if (SysList.size()==0) SysList.push_back("noname");
-	if (!TestNum(LatList,"lat",1,1,start)) {cout << "There must be exactly one 'lat name' in the input" << endl; success=false;}
-	if (!TestNum(NewtonList,"newton",0,1,start)) {cout << "There can be no more than 1 'newton name' in input" << endl; success=false;}
-	if (NewtonList.size()==0) NewtonList.push_back("noname");
-	if (!TestNum(MonList,"mon",2,1000,start)) {cout << "There must be at least one 'mon name' in input" << endl; success=false;}
-	if (!TestNum(StateList,"state",0,1000,start)) {cout << "There can not be more than 1000 'state name's in input" << endl; success=false;}
-	if (!TestNum(ReactionList,"reaction",0,1000,start)) {cout << "There can not be more than 1000 reaction name's in input" << endl; success=false;}
-	TestNum(AliasList,"alias",0,1000,start);
-	if (AliasList.size()==0) AliasList.push_back("noname");
-	if (!TestNum(MolList,"mol",1,1000,start)) {cout << "There must be at least one 'mol name' in input" << endl; success=false;}
-	if (!TestNum(OutputList,"output",1,1000,start)) {cout << "No output defined! " << endl;}
-	if (!TestNum(MesodynList,"mesodyn",0,1,start)) {cout << "There can be no more than 1 'mesodyn' engine brand name in the input " << endl; success=false;}
-	if (!TestNum(ClengList,"cleng",0,1,start)) {cout << "There can be no more than 1 'cleng' engine brand name in the input " << endl; success=false;}
-	if (!TestNum(TengList,"teng",0,1,start)) {cout << "There can be no more than 1 'teng' engine brand name in the input " << endl; success=false;}
-	if (!TestNum(VarList,"var",0,10,start))
-	if (VarList.size()==0) VarList.push_back("noname");
-	return success;
+	for (auto& map : ListMap) {
+		//map: second: List vector, first: String name
+		//rangemap: second : high value, first: low value
+		map.second->clear();
+		result = LoadList( *map.second, map.first, RangeMap[map.first].first, RangeMap[map.first].second, start);
+	}
+
+	ForceNonEmptyNameFor("sys", "newton", "alias", "var");
+
+	if (OutputList.empty()) {
+		std::cout << "No output defined! " << std::endl;
+	}
+
+	return result;
 }
 
-bool Input::TestNum(std::vector<std::string> &S, string c,int num_low, int num_high, int UptoStartNumber  ) {
+void Input::ForceNonEmptyNameFor(const std::string name) {
+	auto it = ListMap.find(name);
+	if (it != ListMap.end() and it->second->empty())
+		it->second->push_back("noname");
+}
 
-	bool InList=false;
-	int n_starts=0;
-	for (auto& line : m_file_content) {
-		if (line[1]=="start") n_starts++;
-		if (c==line[1] && n_starts < UptoStartNumber ){
-			InList=false;
-			int S_length=S.size();
-			for (int k=0; k<S_length; k++) if (line[2]==S[k]) InList=true;
-			if (!InList) S.push_back(line[2]);
-		}
+void Input::ForceNonEmptyNameFor(const std::string first_name, const std::string other_names...) {
+	auto it = ListMap.find(first_name);
+	if (it != ListMap.end() and it->second->empty())
+		it->second->push_back("noname");
+	ForceNonEmptyNameFor(other_names);
+}
+
+bool Input::LoadList(std::vector<std::string> &list, string key, int num_low, int num_high, int start  ) {
+
+	for (auto& brands : m_settings[start][key])
+		list.push_back(brands.first);
+	
+	return VerifyRange(list.size(), num_low, num_high, key);
+}
+
+bool Input::VerifyRange(int number, int num_low, int num_high, std::string& key) {
+	if (number >= num_low and number <= num_high) {
+		return true;
+	} else {
+		if (num_low != num_high)
+			std::cerr << "Only between " << num_low << " and " << num_high << " '" << key << "' names are allowed in the input file." << endl;
+		else
+			if (num_low == 1)
+				std::cerr << "There must be exactly one '" << key << "' name in the input file." << endl;
+			else 
+				std::cerr << "Only " << num_low << " '" << key << "' names are allowed in the input file." << endl;
+		return false;
 	}
-	int number=S.size();
-	if (number>num_low-1 && number<num_high+1) {return true;}
-	return false;
 }
 
 bool Input::IsDigit( string token )
@@ -280,6 +327,9 @@ bool Input::IsDigit( string token )
 bool Input::is_bool( string token ) {
     return regex_match( token, regex("^[01]$|^true$|^false$") );
 }
+
+
+/****** All of the below is added for compatibility with older code, but I advise using the to_value template from the header ******/
 
 int Input::Get_int(string input, int default_value) {
 	try { return stoi(input); }
@@ -310,8 +360,8 @@ bool Input::Get_string(string input, string &target, std::vector<std::string>&op
 	else {cout << error << endl; return false;}
 
 	if (!InSet(options,target)) {
-		cout << error << " value '" << target << "' is not allowed. Select from: " << endl;
-		for (auto & option : options) cout << option << endl;
+		cout << error << " value '" << target << "' is not allowed. Select from: " << endl << PrintList(options);
+		return false;
 	} else return true;
 }
 
@@ -339,4 +389,72 @@ bool Input::Get_bool(string input, bool default_value) {
 bool Input::Get_bool(string input, bool &target, const std::string &error) {
 	if( is_bool(input) ) { to_value(input, target); return true; }
 	else { cout << error << endl; return false; }
+}
+
+bool Input:: LoadItems(const string key,std::vector<std::string> &Out_key, std::vector<std::string> &Out_name, std::vector<std::string> &Out_prop) {
+
+	brand_settings_map output;
+	string wildcard_char = "*";
+
+	try {
+		output = m_settings[1].at(key);
+	} catch (out_of_range) {
+		cerr << "No output found for '" << key << "'. This is definitely a developer's error." <<  endl;
+		throw INPUT_ERROR::OUT_NAME_NOT_FOUND;
+	}
+
+	for (auto& keys : output) {
+		auto& requested_key = keys.first;
+		if (not std::binary_search(KEYS.begin(), KEYS.end(), requested_key)) {
+			cerr << "Requested output for unrecognized module '" << requested_key << "'. Please select from:" << endl << PrintList(KEYS);
+			throw INPUT_ERROR::UNKNOWN;
+		}
+
+		for (auto& brands : keys.second) {
+			auto& list = *ListMap[requested_key];
+			auto& requested_brand = brands.first;
+			if (std::find(list.begin(), list.end(), requested_brand) == list.end()) {
+				std::cerr << "Name '" << requested_brand << "' in output settings not recognized. Please select from" << endl << PrintList(list);
+				throw INPUT_ERROR::UNKNOWN;
+			}
+			if (requested_brand == wildcard_char)
+				for (auto& brand : *ListMap[requested_key]) {
+					Out_key.push_back(requested_key); Out_name.push_back(brand); Out_prop.push_back(brands.second);
+				}
+			else
+				{
+					Out_key.push_back(requested_key); Out_name.push_back(requested_brand); Out_prop.push_back(brands.second);
+				}
+
+			if (key=="vtk" and Out_key.size()>1) {
+				std::cerr << "vtk output can have only one entry: the following entries were found:" << endl;
+				for (size_t i = 0; i < Out_key.size(); i++) {std::cerr << key << " : " << Out_key[i] << " : " << Out_name[i] << " : " << Out_prop[i] << endl; }
+			}
+					
+		}
+	}
+
+	return true;
+}
+
+// Seems to be used by Lattice
+bool Input::ReadFile(string fname, string &In_buffer) {
+	ifstream this_file;
+	bool success=true;
+	bool add;
+	this_file.open(fname.c_str());
+	std:: string In_line;
+	if (this_file.is_open()) {
+		while (this_file) {
+			add=true;
+			std::getline(this_file,In_line);
+			In_line.erase(std::remove(In_line.begin(), In_line.end(), ' '), In_line.end());
+			if (In_line.length()==0) add = false;
+			if (In_line.length()>2) {if (In_line.substr(0,2) == "//") {add = false;}}
+			if (add) {In_buffer.append(In_line).append("#");};
+		}
+		this_file.close();
+		if (In_buffer.size()==0) {cout << "File " + fname + " is empty " << endl; success=false; }
+	} else {cout <<  "Inputfile " << fname << " is not found. " << endl; success=false; }
+	return success;
 }

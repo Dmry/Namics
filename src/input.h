@@ -4,6 +4,7 @@
 #include <string>
 #include <algorithm>
 #include <vector>
+#include <utility>
 #include <regex>
 #include <iostream>
 #include <exception>
@@ -11,6 +12,8 @@
 #include <functional>
 #include <fstream>
 #include "output_info.h"
+
+#define Require_input_range std::make_pair
 
 typedef double Real;
 using namespace std;
@@ -53,9 +56,15 @@ class Input_parser : public IInput_parser {
 
 class Input {
   public:
-    typedef vector<string> tokenized_line;
+  typedef vector<string> tokenized_line;
+  typedef std::map<int, std::vector<tokenized_line>> Settings_per_start;
 
-    vector<string> KEYS;
+  typedef map<string,string> parameter_value_pair;
+  typedef map<string, parameter_value_pair> brand_settings_map;
+  typedef map<string, brand_settings_map> key_settings_map;
+  typedef map<int, key_settings_map> start_settings_map;
+
+  vector<string> KEYS;
 	vector<string> SysList;
 	vector<string> MolList;
 	vector<string> MonList;
@@ -69,11 +78,27 @@ class Input {
 	vector<string> VarList;
 	vector<string> StateList;
 	vector<string> ReactionList;
+  IInput_parser* m_parser;
+  std::vector<tokenized_line> m_file_content;
+  string name;
+  map<string,string> parameter_value_pairs;
+  start_settings_map m_settings;
+  std::map<const std::string, vector<std::string>*> ListMap;
+  std::map<const std::string, std::pair<int, int>> RangeMap;
+  vector<string> out_options;
 
   Input(std::string filename);
   ~Input() { }
 
+  void PreProcess();
+
   OutputInfo output_info;
+
+  enum class INPUT_ERROR {
+    ALREADY_DEFINED,
+    UNKNOWN,
+    OUT_NAME_NOT_FOUND,
+  };
 
   enum TOKENS {
       LINE,
@@ -82,10 +107,6 @@ class Input {
       PARAMETER,
       VALUE,
   };
-
-  IInput_parser* m_parser;
-  const vector<tokenized_line> m_file_content;
-  map<string,string> parameter_value_pair;
   
   template<typename T>
   bool InSet(vector<T>& KEYS, T key) {
@@ -99,6 +120,34 @@ class Input {
     pos = (int)std::distance(KEYS.begin(), iter);
     return iter != KEYS.end();
   }
+
+
+  //Brackets verification for molecule compositions
+  std::sregex_iterator NestedGroup(std::regex&, string& input, string& delimiter_open, string& delimiter_close);
+  bool EvenSign(string input, string delimiter_open, string delimiter_close, vector<int>&, vector<int>&);
+  bool EvenSquareBrackets(string exp, vector<int> &open, vector<int> &close);
+  bool EvenBrackets(string exp, vector<int> &open, vector<int> &close);
+
+  //Input validation
+  bool ValidateKey(const std::vector<std::string>& KEYS, const std::string& key);
+  bool CheckInput(void);
+  string LineError(const tokenized_line&);
+  string PrintList(const std::vector<std::string>&);
+  int GetNumStarts();
+  bool CheckParameters(string key, string brand, int start, std::vector<std::string> &KEYS, std::vector<std::string> &PARAMETERS,std::vector<std::string> &VALUES);
+
+
+  //List building
+  bool MakeLists(int start);
+  bool VerifyRange(int, int, int, std::string&);
+  void ForceNonEmptyNameFor(const std::string, const std::string...);
+  void ForceNonEmptyNameFor(std::string);
+  bool LoadList(std::vector<std::string> &, const string,int, int, int);
+
+  //Loading strings and converting to variables
+  bool LoadItems(string template_,std::vector<std::string> &Out_key, std::vector<std::string> &Out_name, std::vector<std::string> &Out_prop);
+  void split(const string& line, const char& delimiter, tokenized_line& target);
+  bool IsDigit( string token );
 
   template<typename Datatype>
   Datatype to_value(const string& PARAMETER, Datatype& target) {
@@ -117,22 +166,27 @@ class Input {
         return value;
   }
 
-  bool CheckParameters(string key, string brand, int start, std::vector<std::string> &KEYS, std::vector<std::string> &PARAMETERS,std::vector<std::string> &VALUES);
-  std::sregex_iterator NestedGroup(string& input, string& delimiter_open, string& delimiter_close);
-  bool EvenSign(string input, string delimiter_open, string delimiter_close, vector<int>&, vector<int>&);
-  bool EvenSquareBrackets(string exp, vector<int> &open, vector<int> &close);
-  bool EvenBrackets(string exp, vector<int> &open, vector<int> &close);
-  bool ValidateKeys();
-  bool CheckInput(void);
-  string name;
-  bool MakeLists(int start);
-  bool TestNum(std::vector<std::string> &S, string c,int num_low, int num_high, int UptoStartNumber );
-  int GetNumStarts();
-  bool IsDigit( string token );
+  template<typename Datatype>
+  Datatype to_value(const string& PARAMETER) {
+        Datatype value;
+        std::istringstream buffer{PARAMETER};
+        buffer >> value;
+        return value;
+  }
+
+  bool to_value(const string& PARAMETER) {
+        bool value;
+        std::istringstream buffer{PARAMETER};
+        buffer >> std::boolalpha >> value;
+        return value;
+  }
+
+  bool ReadFile(string fname, string &In_buffer);
+
+  // Legacy code used for compatability, please use the templates above.
   bool is_bool( string token );
   int Get_int(string, int );
 	bool Get_int(string, int &, const std::string &);
-  bool ArePair(char opening,char closing);
 	bool Get_int(string, int &, int, int, const std::string &);
 	string Get_string(string, const string &);
 	bool Get_string(string, string &, const  std::string & );
@@ -142,7 +196,6 @@ class Input {
 	bool Get_Real(string, Real &, Real, Real, const std::string &);
 	bool Get_bool(string, bool );
 	bool Get_bool(string, bool &, const std::string &);
-    void split(const string& line, const char& delimiter, tokenized_line& target);
 
   private:
 	void parseOutputInfo();
