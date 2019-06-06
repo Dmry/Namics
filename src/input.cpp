@@ -73,7 +73,6 @@ bool Input_parser::is_not_blank(const string& token) {
 }
 
 bool Input_parser::is_not_commented(const string& line) {
-    //return !regex_match( line, regex(R"(^\/{2,} ?)") );
     return line.substr(0, 2) != "//";
 }
 
@@ -94,28 +93,23 @@ void Input::split(const string& line, const char& delimiter, tokenized_line& tar
 
 Input::Input(string filename)
 : m_parser{new Input_parser(filename)}, m_file_content{m_parser->parse()}, name{filename},
-// Listmap: A map that can be accessed using the name of the module.
-ListMap {
-		{"sys" , &SysList}, {"mol" , &MolList}, {"mon", &MonList}, {"alias", &AliasList}, {"lat", &LatList},
-		{"newton", &NewtonList}, {"mesodyn", &MesodynList}, {"cleng", &ClengList}, {"teng", &TengList}, {"output", &OutputList},
-		{"var", &VarList}, {"state", &StateList}, {"reaction", &ReactionList}
-	},
 out_options{ "ana", "vtk", "kal", "pro", "vec", "pos"}
 {
+	// Listmap: A map that can be accessed using the name of the module.
 	// Rangemap: A map that tells the input verification how many of these guys to expect.
-	RangeMap["sys"] = Require_input_range(0,1);
-	RangeMap["mol"] = Require_input_range(1,1000);
-	RangeMap["mon"] = Require_input_range(2,1000);
-	RangeMap["alias"] = Require_input_range(0,1000);
- 	RangeMap["lat"] = Require_input_range(1,1);
-	RangeMap["newton"] = Require_input_range(0,1);
-	RangeMap["mesodyn"] = Require_input_range(0,1);
-	RangeMap["cleng"] = Require_input_range(0,1);
-	RangeMap["teng"] = Require_input_range(0,1);
-	RangeMap["output"] = Require_input_range(1,1000);
-	RangeMap["var"] = Require_input_range(0,10);
-	RangeMap["state"] = Require_input_range(0,1000);
-	RangeMap["reaction"] = Require_input_range(0,1000);
+	ListMap["sys"] = &SysList;			RangeMap["sys"] = Require_input_range(0,1);
+	ListMap["mol"] = &MolList;			RangeMap["mol"] = Require_input_range(1,1000);
+	ListMap["mon"] = &MonList;			RangeMap["mon"] = Require_input_range(2,1000);
+	ListMap["alias"] = &AliasList;		RangeMap["alias"] = Require_input_range(0,1000);
+ 	ListMap["lat"] = &LatList;			RangeMap["lat"] = Require_input_range(1,1);
+	ListMap["newton"] = &NewtonList;	RangeMap["newton"] = Require_input_range(0,1);
+	ListMap["mesodyn"] = &MesodynList;	RangeMap["mesodyn"] = Require_input_range(0,1);
+	ListMap["cleng"] = &ClengList;		RangeMap["cleng"] = Require_input_range(0,1);
+	ListMap["teng"] = &TengList;		RangeMap["teng"] = Require_input_range(0,1);
+	ListMap["output"] = &OutputList;	RangeMap["output"] = Require_input_range(1,1000);
+	ListMap["var"] = &VarList;			RangeMap["var"] = Require_input_range(0,10);
+	ListMap["state"] = &StateList;		RangeMap["state"] = Require_input_range(0,1000);
+	ListMap["reaction"] = &ReactionList;RangeMap["reaction"] = Require_input_range(0,1000);
 
 	// We also want to recognize starts though.
 	KEYS.push_back("start");
@@ -132,31 +126,31 @@ out_options{ "ana", "vtk", "kal", "pro", "vec", "pos"}
 	CheckInput();
 }
 
-std::sregex_iterator Input::NestedGroup(std::regex& rx, string& input, string& delimiter_open, string& delimiter_close) {
-    return sregex_iterator(input.begin(), input.end(), rx);
-}
-
-bool Input::EvenSign(string input, string delimiter_open, string delimiter_close, vector<int>& open, vector<int>& close) {
-	std::regex rx = std::regex("(\\" + delimiter_open + ")(\\w+)(\\" + delimiter_close + ")");
-    std::sregex_iterator matches = sregex_iterator(input.begin(), input.end(), rx);
-	// position 0 is full match, 1 is first bracket, 2 is what is between brackets, 3 is closing bracket
-	if (!matches->empty()) {
-		for (auto i = matches ; i != std::sregex_iterator() ; ++i) {
-    		open.push_back(i->position(1));
-    		close.push_back(i->position(3));
+bool Input::EvenDelimiters(string exp, vector<int>& open, vector<int>& close, char delimiter_open, char delimiter_close) {
+	std::stack<char> S;
+	for (size_t i = 0; i < exp.size(); i++) {
+		if (exp[i] == delimiter_open ) {
+			S.push(exp[i]);
+			open.push_back(i);
+		}
+		else if (exp[i] == delimiter_close) {
+			close.push_back(i);
+			if (S.empty() or exp[i] != delimiter_close)
+				return false;
+			else
+				S.pop();
 		}
 	}
-    return true;//!regex_match((*matches)[2].str(), regex("([\\" + delimiter_open + "\\" + delimiter_close + "])"));
+	return S.empty();
 }
 
-bool Input::EvenSquareBrackets(string exp, vector<int> &open, vector<int> &close) {
-    return EvenSign(exp, "[", "]", open, close);
+bool Input::EvenSquareBrackets(string exp,vector<int> &open, vector<int> &close) {
+	return EvenDelimiters(exp, open, close, '[', ']');
 }
 
-bool Input::EvenBrackets(string exp, vector<int> &open, vector<int> &close) {
-    return EvenSign(exp, "(", ")", open, close);
+bool Input::EvenBrackets(string exp,vector<int> &open, vector<int> &close) {
+	return EvenDelimiters(exp, open, close, '(', ')');
 }
-
 
 int Input::GetNumStarts() {
 	return m_settings.size();

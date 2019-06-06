@@ -9,6 +9,7 @@
 #include <iostream>
 #include <exception>
 #include <map>
+#include <stack>
 #include <functional>
 #include <fstream>
 #include "output_info.h"
@@ -123,8 +124,7 @@ class Input {
 
 
   //Brackets verification for molecule compositions
-  std::sregex_iterator NestedGroup(std::regex&, string& input, string& delimiter_open, string& delimiter_close);
-  bool EvenSign(string input, string delimiter_open, string delimiter_close, vector<int>&, vector<int>&);
+  bool EvenDelimiters(string exp, vector<int>& open, vector<int>& close, char delimiter_open, char delimiter_close);
   bool EvenSquareBrackets(string exp, vector<int> &open, vector<int> &close);
   bool EvenBrackets(string exp, vector<int> &open, vector<int> &close);
 
