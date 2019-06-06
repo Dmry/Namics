@@ -12,50 +12,47 @@ Input_parser::Input_parser(string filename)
 }
 
 vector<tokenized_line> Input_parser::parse() {
-        string line;
-		size_t line_no = 1;
+	string line;
+	size_t line_no = 1;
 
-        for (;getline(m_file, line); ++line_no) {
-            if ( is_not_blank(line) and is_not_commented(line) and is_not_start(line)) {
-				vector<string> tokens, line_tokens;
+	for (;getline(m_file, line); ++line_no) {
+		if ( is_not_blank(line) and is_not_commented(line) and is_not_start(line)) {
+			vector<string> tokens, line_tokens;
 
-                line = discard_whitespace(line);
+			line = discard_whitespace(line);
 
-				tokens.push_back( to_string(line_no) );
-				split(line,":", line_tokens);
+			tokens.push_back( to_string(line_no) );
+			split(line,':', line_tokens);
 
-				// Copy the line as separate strings (tokens) into the tokens vector
-                std::copy ( line_tokens.begin(), line_tokens.end(), std::back_inserter(tokens));
+			// Copy the line as separate strings (tokens) into the tokens vector
+			std::copy ( line_tokens.begin(), line_tokens.end(), std::back_inserter(tokens));
 
-				// Verify we have a line number and 4 tokens
-                if ( tokens.size() != 5) {
-                    cerr << " Line number " << line_no << " does not contain 4 items" << endl;
-                    throw ERROR::INCORRECT_TOKEN_COUNT;
-                }
+			// Verify we have a line number and 4 tokens
+			if ( tokens.size() != 5) {
+				cerr << " Line number " << line_no << " does not contain 4 items" << endl;
+				throw ERROR::INCORRECT_TOKEN_COUNT;
+			}
 
-				// Add the tokenized line to the end of the vector that will be returned
-                m_settings.push_back(tokens);
+			// Add the tokenized line to the end of the vector that will be returned
+			m_settings.push_back(tokens);
 
 
-			// If the line is commented or blank, do nothing, but if it's start: add start plus line number to the returned vector.
-            } else if (is_not_blank(line) and is_not_commented(line) and line == "start")
-				m_settings.push_back({to_string(line_no), "start", " ", " ", " "});
+		// If the line is commented or blank, do nothing, but if it's start: add start plus line number to the returned vector.
+		} else if (is_not_blank(line) and is_not_commented(line) and line == "start")
+			m_settings.push_back({to_string(line_no), "start", " ", " ", " "});
 
-        } //finished reading lines
+	} //finished reading lines
 
-		assert_last_token_start(line_no);
+	assert_last_token_start(line_no);
 
-        m_file.close();
+	m_file.close();
 
-        return m_settings;
+	return m_settings;
 }
 
-bool Input_parser::assert_last_token_start(size_t line_no) {
-	if (m_settings.back()[1] != "start") {
-		m_settings.push_back(tokenized_line{ to_string(line_no), "start", " ", " ", " "}); return false;
-	} else {
-		return true;
-	}
+void Input_parser::assert_last_token_start(size_t line_no) {
+	if (m_settings.back()[1] != "start")
+		m_settings.push_back(tokenized_line{ to_string(line_no), "start", " ", " ", " "});
 }
 
 bool Input_parser::is_not_start(const string& line) {
@@ -76,19 +73,15 @@ bool Input_parser::is_not_commented(const string& line) {
     return line.substr(0, 2) != "//";
 }
 
-void Input_parser::split(const string& line, const string& delimiter, tokenized_line& target) {
-    tokenized_line tokens;
-    std::regex sregex("([^\\" + delimiter + "]+)");
-    regex_token_iterator<string::const_iterator> end; // default end iterator
-    regex_token_iterator<string::const_iterator> a(line.begin(), line.end(), sregex);
-    while (a!=end)
-        tokens.push_back(*a++);
-    target = tokens;
+void Input_parser::split(const string& line, const char& delimiter, tokenized_line& target) {
+    std::istringstream iss { line };
+	string token;
+  	while ( std::getline( iss, token, delimiter ) )
+	  	target.push_back(token);
 }
 
 void Input::split(const string& line, const char& delimiter, tokenized_line& target) {
-	const string compatibility_delimiter = string( 1, delimiter );
-	dynamic_cast<Input_parser*>(m_parser)->split(line, compatibility_delimiter, target);
+	dynamic_cast<Input_parser*>(m_parser)->split(line, delimiter, target);
 }
 
 Input::Input(string filename)
@@ -117,6 +110,9 @@ out_options{ "ana", "vtk", "kal", "pro", "vec", "pos"}
 	// Add all the keys of the maps above to the KEYS vector for compatibility.
 	for (auto& map : ListMap)
 		KEYS.push_back(map.first);
+
+	for (auto& option : out_options)
+		KEYS.push_back(option);
 
 	// So we can use binary search!
 	std::sort(KEYS.begin(), KEYS.end());
@@ -179,8 +175,55 @@ void Input::PreProcess() {
 		std::cerr << errors << " errors in input, please correct!" << endl;
 		throw INPUT_ERROR::ALREADY_DEFINED;
 	}
+
+	ValidateBrands();
+	ValidateInputKeys();
 }
 
+void Input::ValidateBrands() {
+	// Validates number of brands in the input file and checks if they're consistent with the requested output
+	for (int start = 1 ; start <= GetNumStarts() ; ++start) {
+		if (not MakeLists(start))
+			throw INPUT_ERROR::INPUT_RANGE;
+
+		for (auto& output_option : out_options)
+			if (OutputTypeRequested(start,output_option))
+				for (auto& key : m_settings[start][output_option]) {
+					AssertRequestedOutputKeyExists(start, key.first);
+					for (auto& brand : key.second)
+						AssertRequestedOutputBrandExists(start, key.first, brand.first);
+				}
+	}
+}
+
+void Input::ValidateInputKeys() {
+	for (auto& keys : m_settings[GetNumStarts()])
+		if (not ValidateKey(KEYS, keys.first)) {
+			cerr << "Unknown key '" << keys.first << "' in input file!" << endl;
+			throw INPUT_ERROR::UNKNOWN;
+		}
+}
+
+bool Input::OutputTypeRequested(int start, const string& output_option) {
+	return m_settings[start].find(output_option) !=  m_settings[start].end();
+}
+
+void Input::AssertRequestedOutputKeyExists(int start, const std::string& requested_key) {
+	if (not std::binary_search(KEYS.begin(), KEYS.end(), requested_key)) {
+		cerr << "In start " << start << ": Requested output for unrecognized module '" << requested_key << "'. Please select from:" << endl << PrintList(KEYS);
+		throw INPUT_ERROR::UNKNOWN;
+	}
+}
+
+void Input::AssertRequestedOutputBrandExists(int start, const std::string& requested_key, const string& requested_brand) {
+	auto& list = *ListMap[requested_key];
+	if (requested_brand != "*")
+		// Find if brand for requested output exists or not
+		if (std::find(list.begin(), list.end(), requested_brand) == list.end()) {
+			std::cerr << "In start " << start << ": Name '" << requested_brand << "' " << "for " << requested_key << " in output settings not recognized. Please select from:" << endl << PrintList(list);
+			throw INPUT_ERROR::UNKNOWN;
+		}
+}
 
 string Input::LineError(const tokenized_line& line) {
 	ostringstream error_msg;
@@ -231,19 +274,13 @@ bool Input::CheckInput(void) {
 				cout << "Value for output extension '" + output_brand.first + "' not allowed." << endl;
 				success = false;
 			}
-
-			//TODO :Compatibility code: I think this line is used by output.. if not, just move the options directly into the KEYS vector and remove if statement below.
-			if (not std::binary_search(KEYS.begin(), KEYS.end(), output_brand.first)) {
-				KEYS.push_back( output_brand.first );
-				std::sort(KEYS.begin(), KEYS.end());
-			}
 		}
 
 	parseOutputInfo();
 
 	if (!output_info.isOutputExists()) {
 		cout << "Cannot access output folder '" << output_info.getOutputPath() << "'" << endl;
-		success = false;
+		throw INPUT_ERROR::OUTPUT_FOLDER;
 	}
 
 	return success;
@@ -259,19 +296,20 @@ void Input::parseOutputInfo() {
 }
 
 bool Input::MakeLists(int start) {
-	bool result = false;
+	bool result = true;
 
 	for (auto& map : ListMap) {
 		//map: second: List vector, first: String name
 		//rangemap: second : high value, first: low value
 		map.second->clear();
-		result = LoadList( *map.second, map.first, RangeMap[map.first].first, RangeMap[map.first].second, start);
+		if (!LoadList( *map.second, map.first, RangeMap[map.first].first, RangeMap[map.first].second, start))
+			result = false;
 	}
 
 	ForceNonEmptyNameFor("sys", "newton", "alias", "var");
 
 	if (OutputList.empty()) {
-		std::cout << "No output defined! " << std::endl;
+		std::cout << "WARNING: No output defined for start " << start << "! " << std::endl;
 	}
 
 	return result;
@@ -385,13 +423,13 @@ bool Input::Get_bool(string input, bool &target, const std::string &error) {
 	else { cout << error << endl; return false; }
 }
 
-bool Input:: LoadItems(const string key,std::vector<std::string> &Out_key, std::vector<std::string> &Out_name, std::vector<std::string> &Out_prop) {
+bool Input:: LoadItems(const int start, const string key,std::vector<std::string> &Out_key, std::vector<std::string> &Out_name, std::vector<std::string> &Out_prop) {
 
 	brand_settings_map output;
 	string wildcard_char = "*";
 
 	try {
-		output = m_settings[1].at(key);
+		output = m_settings[start].at(key);
 	} catch (out_of_range) {
 		cerr << "No output found for '" << key << "'. This is definitely a developer's error." <<  endl;
 		throw INPUT_ERROR::OUT_NAME_NOT_FOUND;
@@ -399,18 +437,8 @@ bool Input:: LoadItems(const string key,std::vector<std::string> &Out_key, std::
 
 	for (auto& keys : output) {
 		auto& requested_key = keys.first;
-		if (not std::binary_search(KEYS.begin(), KEYS.end(), requested_key)) {
-			cerr << "Requested output for unrecognized module '" << requested_key << "'. Please select from:" << endl << PrintList(KEYS);
-			throw INPUT_ERROR::UNKNOWN;
-		}
-
 		for (auto& brands : keys.second) {
-			auto& list = *ListMap[requested_key];
 			auto& requested_brand = brands.first;
-			if (std::find(list.begin(), list.end(), requested_brand) == list.end()) {
-				std::cerr << "Name '" << requested_brand << "' in output settings not recognized. Please select from" << endl << PrintList(list);
-				throw INPUT_ERROR::UNKNOWN;
-			}
 			if (requested_brand == wildcard_char)
 				for (auto& brand : *ListMap[requested_key]) {
 					Out_key.push_back(requested_key); Out_name.push_back(brand); Out_prop.push_back(brands.second);
@@ -419,15 +447,9 @@ bool Input:: LoadItems(const string key,std::vector<std::string> &Out_key, std::
 				{
 					Out_key.push_back(requested_key); Out_name.push_back(requested_brand); Out_prop.push_back(brands.second);
 				}
-
-			if (key=="vtk" and Out_key.size()>1) {
-				std::cerr << "vtk output can have only one entry: the following entries were found:" << endl;
-				for (size_t i = 0; i < Out_key.size(); i++) {std::cerr << key << " : " << Out_key[i] << " : " << Out_name[i] << " : " << Out_prop[i] << endl; }
-			}
 					
 		}
 	}
-
 	return true;
 }
 

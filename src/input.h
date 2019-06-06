@@ -9,6 +9,7 @@
 #include <iostream>
 #include <exception>
 #include <map>
+#include <deque>
 #include <stack>
 #include <functional>
 #include <fstream>
@@ -40,19 +41,21 @@ class Input_parser : public IInput_parser {
 
     Input_parser(string filename);
     vector<tokenized_line> parse();
-    void split(const string& line, const string& delimiter, tokenized_line& target);
+    void split(const string& line, const char& delimiter, tokenized_line& target);
 
   private:
 
     vector<tokenized_line> m_settings;
+    std::deque<string> m_raw_file;
     ifstream m_file;
     size_t m_num_starts{1};
 
+    void read();
     bool is_not_start(const string& line);
     string discard_whitespace(const string& line);
     bool is_not_blank(const string& token);
     bool is_not_commented(const string& line);
-    bool assert_last_token_start(size_t line_no);
+    void assert_last_token_start(size_t line_no);
 };
 
 class Input {
@@ -99,6 +102,8 @@ class Input {
     ALREADY_DEFINED,
     UNKNOWN,
     OUT_NAME_NOT_FOUND,
+    INPUT_RANGE,
+    OUTPUT_FOLDER,
   };
 
   enum TOKENS {
@@ -130,10 +135,15 @@ class Input {
 
   //Input validation
   bool ValidateKey(const std::vector<std::string>& KEYS, const std::string& key);
+  void AssertRequestedOutputKeyExists(int start, const std::string& requested_key);
+  bool OutputTypeRequested(int start, const string& output_option);
+  void AssertRequestedOutputBrandExists(int start, const string& requested_key, const string& requested_brand);
   bool CheckInput(void);
   string LineError(const tokenized_line&);
   string PrintList(const std::vector<std::string>&);
   int GetNumStarts();
+  void ValidateBrands();
+  void ValidateInputKeys();
   bool CheckParameters(string key, string brand, int start, std::vector<std::string> &KEYS, std::vector<std::string> &PARAMETERS,std::vector<std::string> &VALUES);
 
 
@@ -145,7 +155,7 @@ class Input {
   bool LoadList(std::vector<std::string> &, const string,int, int, int);
 
   //Loading strings and converting to variables
-  bool LoadItems(string template_,std::vector<std::string> &Out_key, std::vector<std::string> &Out_name, std::vector<std::string> &Out_prop);
+  bool LoadItems(int start, string template_,std::vector<std::string> &Out_key, std::vector<std::string> &Out_name, std::vector<std::string> &Out_prop);
   void split(const string& line, const char& delimiter, tokenized_line& target);
   bool IsDigit( string token );
 

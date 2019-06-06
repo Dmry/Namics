@@ -26,7 +26,7 @@ bool Output::Load() {
 if (debug) cout <<"Load in output " << endl;
 	bool success=true;
 	int molnr=0;
-	success= In[0]->LoadItems(name, OUT_key, OUT_name, OUT_prop);
+	success= In[0]->LoadItems(start, name, OUT_key, OUT_name, OUT_prop);
 	if (success) {
 		int length=OUT_key.size();
 
@@ -113,10 +113,10 @@ if (debug) cout << "CheckInput in output " << endl;
 		} // default is set in the constructor
 
 		if (success) {
-	//		if (!Load()) {
-	//			cout <<"Error in Load() in output" << endl;
-//				success=false;
-//			}
+			if (!Load()) {
+				cout <<"Error in Load() in output" << endl;
+				success=false;
+			}
 		}
 		write_option="no_error";
 		if (GetValue("write_output").size()>0) {
