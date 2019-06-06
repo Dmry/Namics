@@ -469,7 +469,7 @@ bool Teng::CheckInput(int start)
 			moves.push_back("tag");
 			moves.push_back("delta");
 			MoveType = "";
-			if (!In[0]->Get_string(GetValue("move"), MoveType, moves, "At present TransientEngine (Teng) module can only perform moves on 'tag' or 'delta.'"))
+			if (!In[0]->Get_string(GetValue("move"), MoveType, moves, "At present TransientEngine (Teng) module can only perform moves on:"))
 			{
 				success = false;
 			};
