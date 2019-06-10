@@ -1,5 +1,6 @@
 #include "neighborlist.h"
 #include "lattice_object.h"
+#include "lattice_accessor.h"
 
 Neighborlist::Neighborlist(Lattice_object<size_t>& mask_) : m_mask{mask_} { }
 
