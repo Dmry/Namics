@@ -166,7 +166,7 @@ class IProfile_writer
 
 namespace Profile_writer {
     typedef Factory_template<IProfile_writer, Writable_filetype, Lattice*, Writable_file> Factory;
-    extern map<std::string, Writable_filetype> input_options;
+    extern map<std::string, Writable_filetype> output_options;
 }
 
 class Vtk_structured_grid_writer : public IProfile_writer
@@ -234,6 +234,11 @@ class IParameter_writer
         Writable_file m_file;
         std::ofstream m_filestream;
 };
+
+namespace Parameter_writer {
+    typedef Factory_template<IParameter_writer, Writable_filetype, Writable_file> Factory;
+    extern map<std::string, Writable_filetype> output_options;
+}
 
 class JSON_parameter_writer : public IParameter_writer
 {
