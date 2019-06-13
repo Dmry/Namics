@@ -26,7 +26,7 @@ bool Output::Load() {
 if (debug) cout <<"Load in output " << endl;
 	bool success=true;
 	int molnr=0;
-	success= In[0]->LoadItems(name, OUT_key, OUT_name, OUT_prop);
+	success= In[0]->LoadItems(start, name, OUT_key, OUT_name, OUT_prop);
 	if (success) {
 		int length=OUT_key.size();
 

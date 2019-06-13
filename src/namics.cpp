@@ -130,10 +130,11 @@ int main(int argc, char *argv[])
 	vector<Teng *> Ten;	//enginge for clampled molecules
 
 	// Create input class instance and handle errors(reference above)
-	In.push_back(new Input(filename.str()));
-	if (In[0]->Input_error)
-	{
-		return 0;
+	try {
+		In.push_back(new Input(filename.str()));
+	} catch (...) {
+		cerr << "Please correct errors in input file." << endl;
+		exit(0);
 	}
 	n_starts = In[0]->GetNumStarts();
 	if (n_starts == 0)
