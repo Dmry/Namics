@@ -99,7 +99,7 @@ out_options{ "ana", "vtk", "kal", "pro", "vec", "pos"}
 	ListMap["mesodyn"] = &MesodynList;	RangeMap["mesodyn"] = Require_input_range(0,1);
 	ListMap["cleng"] = &ClengList;		RangeMap["cleng"] = Require_input_range(0,1);
 	ListMap["teng"] = &TengList;		RangeMap["teng"] = Require_input_range(0,1);
-	ListMap["output"] = &OutputList;	RangeMap["output"] = Require_input_range(1,1000);
+	ListMap["output"] = &OutputList;	RangeMap["output"] = Require_input_range(0,1000);
 	ListMap["var"] = &VarList;			RangeMap["var"] = Require_input_range(0,10);
 	ListMap["state"] = &StateList;		RangeMap["state"] = Require_input_range(0,1000);
 	ListMap["reaction"] = &ReactionList;RangeMap["reaction"] = Require_input_range(0,1000);
