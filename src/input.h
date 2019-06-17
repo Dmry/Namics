@@ -18,7 +18,7 @@
 #define Require_input_range std::make_pair
 
 typedef double Real;
-using namespace std;
+//using namespace std;
 
 class IInput_parser {
     public:
