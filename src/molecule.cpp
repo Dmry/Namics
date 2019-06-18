@@ -1740,7 +1740,10 @@ if (debug) cout <<"propagate_forward for Mol " + name << endl;
 		int n0=0; if (block>0) n0=memory[block-1];
 		if (s==first_s[generation]) {
 			s++;
-			Cp(Gs+M,G1,M); Cp(Gs,G1,M); Cp(Gg_f+n0*M,Gs+M,M); last_stored[block]=n0;
+			Cp(Gs+M,G1,M);
+			Cp(Gs,G1,M);
+			Cp(Gg_f+n0*M,Gs+M,M);
+			last_stored[block]=n0;
 		} else {
 			Lat[0] ->propagate(Gs,G1,0,1,M); //assuming Gs contains previous end-point distribution on pos zero;
 			Cp(Gg_f+n0*M,Gs+M,M); s++;

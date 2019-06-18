@@ -119,6 +119,24 @@ void bx(T* P, int mmx, int My, int Mz, int bx1, int bxm, int jx, int jy)   {
 	}
 }
 
+inline void Propagate_gs_1_locality(Real* gs, Real* gs_1, int JX, int JY, int JZ, int M) {
+	for ( int i = 0 ; i < M - JX ; ++i) {
+		gs[i+JZ] += gs_1[i];
+		gs[i+JY] += gs_1[i];
+		gs[i+JX] += gs_1[i];
+	}
+}
+
+inline void Propagate_gs_locality(Real* gs, Real* gs_1, Real* G1, int JX, int JY, int JZ, int M) {
+	for ( int i = 0 ; i < M-JX ; ++i) {
+		gs[i] += gs_1[i+JZ];
+		gs[i] += gs_1[i+JY];
+		gs[i] += gs_1[i+JX];
+		gs[i] *= 1.0/6.0;
+		gs[i] *= G1[i];
+	}
+}
+
 template<typename T>
 void b_x(T *P, int mmx, int My, int Mz, int bx1, int bxm, int jx, int jy)   {
 	int i, jx_mmx=jx*mmx;// jx_bxm=jx*bxm, bx1_jx=bx1*jx;
@@ -204,7 +222,7 @@ void Dot(T &result, T *x,T *y, int M)   {
 		_mm_store_pd(ftmp, mres);                
 
 		result = ftmp[0] + ftmp[1];
-}
+	}
 
 	if ((M % 2) != 0) {
 		for (int i = M - M % 2; i < M; i++)
@@ -265,26 +283,26 @@ void YisAplusB(T *Y, T *A, T *B, int M)   {
 
 template<typename T>
 void YplusisCtimesX(T *Y, T *X, T C, int M)    {
-	//for (int i=0; i<M; i++) Y[i] += C*X[i];
-	std::transform(X, X+M, Y, Y, std::placeholders::_2 + C*std::placeholders::_1);
+	for (int i=0; i<M; i++) Y[i] += C*X[i];
+	//std::transform(X, X+M, Y, Y, std::placeholders::_2 + C*std::placeholders::_1);
 }
 
 template<typename T>
 void UpdateAlpha(T *Y, T *X, T C, int M)    {
-	std::transform(X, X+M, Y, Y, std::placeholders::_2 + (std::placeholders::_1*C - 1.0*C)) ;
-	//for (int i=0; i<M; i++) Y[i] += C*(X[i]-1.0);
+	//std::transform(X, X+M, Y, Y, std::placeholders::_2 + (std::placeholders::_1*C - 1.0*C)) ;
+	for (int i=0; i<M; i++) Y[i] += C*(X[i]-1.0);
 }
 
 template<typename T>
 void Picard(T *Y, T *X, T C, int M)    {
-	std::transform(X, X+M, Y, Y, C * std::placeholders::_2 + (1.0 - C) * std::placeholders::_1) ;
-	//for (int i=0; i<M; i++) Y[i] = C*Y[i]+(1.0-C)*X[i];
+	//std::transform(X, X+M, Y, Y, C * std::placeholders::_2 + (1.0 - C) * std::placeholders::_1) ;
+	for (int i=0; i<M; i++) Y[i] = C*Y[i]+(1.0-C)*X[i];
 }
 
 template<typename T>
 void Dubble(Real *P, T *A, T norm,int M)   {
-	std::transform(A, A+M, P, P, std::placeholders::_2 * (norm/std::placeholders::_1)) ;
-	//for (int i=0; i<M; i++) P[i]*=norm/A[i];
+	//std::transform(A, A+M, P, P, std::placeholders::_2 * (norm/std::placeholders::_1)) ;
+	for (int i=0; i<M; i++) P[i]*=norm/A[i];
 }
 
 template<typename T>
@@ -309,8 +327,8 @@ void PutAlpha(T *g, T *phitot, T *phi_side, T chi, T phibulk, int M)   {
 
 template<typename T>
 void PutAlpha(T *g, T *phi_side, T chi, T phibulk, int M)   {
-	std::transform(phi_side, phi_side+M, g, g, std::placeholders::_2 - (chi*std::placeholders::_1-phibulk)) ;
-	//for (int i=0; i<M; i++) g[i] = g[i] - chi*(phi_side[i]-phibulk);
+	//std::transform(phi_side, phi_side+M, g, g, std::placeholders::_2 - (chi*std::placeholders::_1-phibulk)) ;
+	for (int i=0; i<M; i++) g[i] = g[i] - chi*(phi_side[i]-phibulk);
 }
 
 template<typename T>
@@ -355,10 +373,38 @@ void CollectPhi(T* phi, Real* GN, Real* rho, int* Bx, int* By, int* Bz, int MM, 
 	int Bxp,Byp,Bzp;
 	Real Inv_H_GNp;
 	int ii=0,jj=0,kk=0;
-	for (int p=0; p<n_box; p++) {pos_l +=M; ii=0; Bxp=Bx[p]; Byp=By[p]; Bzp=Bz[p]; Inv_H_GNp=1.0/GN[p];
-		for (int i=1; i<Mx+1; i++) {ii+=jx; jj=0;  if (Bxp+i>MX) pos_x=(Bxp+i-MX)*JX; else pos_x = (Bxp+i)*JX;
-			for (int j=1; j<My+1; j++) {jj+=jy;  kk=0; if (Byp+j>MY) pos_y=(Byp+j-MY)*JY; else pos_y = (Byp+j)*JY;
-				for (int k=1; k<Mz+1; k++) { kk++; if (Bzp+k>MZ) pos_z=(Bzp+k-MZ); else pos_z = (Bzp+k);
+	for (int p=0; p<n_box; p++) {
+		pos_l +=M;
+		ii=0;
+		Bxp=Bx[p];
+		Byp=By[p];
+		Bzp=Bz[p];
+		Inv_H_GNp=1.0/GN[p];
+
+		for (int i=1; i<Mx+1; i++) {
+			ii+=jx;
+			jj=0;
+
+			if (Bxp+i>MX)
+				pos_x=(Bxp+i-MX)*JX;
+			else
+				pos_x = (Bxp+i)*JX;
+
+			for (int j=1; j<My+1; j++) {
+				jj+=jy;
+				kk=0;
+				if (Byp+j>MY)
+					pos_y=(Byp+j-MY)*JY;
+				else
+					pos_y = (Byp+j)*JY;
+				
+				for (int k=1; k<Mz+1; k++) {
+					kk++;
+					if (Bzp+k>MZ)
+						pos_z=(Bzp+k-MZ);
+					else
+						pos_z = (Bzp+k);
+
 					phi[pos_x+pos_y+pos_z]+=rho[pos_l+ii+jj+kk]*Inv_H_GNp;
 				}
 			}
