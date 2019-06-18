@@ -1691,8 +1691,20 @@ void Lattice::propagate(Real *G, Real *G1, int s_from, int s_to, int M)
 		Zero(gs, M);
 		set_bounds(gs_1);
 
+
+		#ifdef CUDA
+		Add(gs + JX_, gs_1, M - JX_);
+		Add(gs, gs_1 + JX_, M - JX_);
+		Add(gs + JY_, gs_1, M - JY_);
+		Add(gs, gs_1 + JY_, M - JY_);
+		Add(gs + 1, gs_1, M - 1);
+		Add(gs, gs_1 + 1, M - 1);
+		Norm(gs, 1.0 / 6.0, M);
+		Times(gs, gs, G1, M);
+		#else
 		Propagate_gs_1_locality(gs, gs_1, JX_, JY_, 1, M);
 		Propagate_gs_locality(gs, gs_1, G1, JX_, JY_, 1, M);
+		#endif
 		
 		break;
 	default:
