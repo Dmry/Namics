@@ -144,7 +144,7 @@ __global__ void propagate_gs_locality(Real* gs, Real* gs_1, Real* G1, int JX, in
 
  __global__ void second_order_fd_stencil(Real *g_output, Real *g_input, Real coeff, const int dimx, const int dimy, const int dimz)
 { 
-//**********	WARNING: OUR ARRAYS ARE DEPTH MAJOR, SO .x SHOULD BE FILLED WITH ELEMENTS IN Z AND VICE VERSA *********
+// **********	WARNING: OUR ARRAYS ARE DEPTH MAJOR, SO .x SHOULD BE FILLED WITH ELEMENTS IN Z AND VICE VERSA *********
 	// Contains the current 2D slice
 	__shared__ Real s_data[BDIMZ+2*radius][BDIMY+2*radius][BDIMX+2*radius];
 
@@ -880,7 +880,7 @@ void Zero(Real* P, int M)   {
 		printf("CUDA error: %s\n", cudaGetErrorString(error));
 		throw 1;
 	} */
-	}
+}
 
 void Zero(int* P, int M)   {
 	cudaMemset((void**)P, 0, M*sizeof(int));
