@@ -18,6 +18,8 @@
 
 //extern cublasStatus_t stat;
 //extern cublasHandle_t handle;
+#define CUDA_NUM_STREAMS 3
+extern cudaStream_t CUDA_STREAMS[CUDA_NUM_STREAMS];
 extern const int block_size;
 
 __global__ void second_order_fd_stencil(Real *g_output, Real *g_input, Real coeff, const int dimx, const int dimy, const int dimz);
