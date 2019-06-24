@@ -643,12 +643,12 @@ Real* AllManagedOnDev(int N) {
 	return X;
 }
 
-void Dot(Real &result, Real *x,Real *y, int M)   {
-	Real* _result = (Real*)AllOnDev(1);
+void Dot(Real *preallocated_result, Real *x,Real *y, int M)   {
+	cudaMemset((void**)preallocated_result, 0, sizeof(Real));
+	//Use a pre-allocated (member) variable! Allocating memory for every call is way too costly
+	//Memcopies can be masked by asynchronous transfer, allocations and frees are blocking.
 	int n_blocks=(M)/block_size + ((M)%block_size == 0 ? 0:1);
-	dot<<<n_blocks,block_size>>>(x,y,_result,M);
-	TransferDataToHost(&result, _result,1);
-	cudaFree(_result);
+	dot<<<n_blocks,block_size>>>(x,y,preallocated_result,M);
 }
 
 void Sum(Real* preallocated_result, Real *x, int M)   {
