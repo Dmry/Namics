@@ -40,6 +40,11 @@ Lattice::~Lattice()
 	//In this program, we will assume that the propagator will work on a simple cubic lattice.
 	//Interactions will be treated either with simple cubic or FCC 'lambda's.
 	DeAllocateMemory();
+	#ifdef CUDA
+	cudaFree(Sum_result);
+	#else
+	delete Sum_result;
+	#endif
 }
 
 void Lattice::DeAllocateMemory(void)
@@ -295,8 +300,12 @@ void Lattice::AllocateMemory(void)
 		break;
 	}
 #ifdef CUDA
-	if (gradients == 3)
+	Sum_result = (Real*)AllOnDev(1);
+	if (gradients == 3) {
 		X = (Real *)AllOnDev(M);
+	}
+#else
+	Sum_result = new Real;
 #endif
 	all_lattice = (gradients < 2 && geometry != "planar");
 }
@@ -1226,23 +1235,29 @@ Real Lattice::WeightedSum(Real *X)
 	{
 	case 1:
 		if (fjc == 1 && geometry == "planar")
-			Sum(sum, X, M);
+			Sum(Sum_result, X, M);
 		else
-			Dot(sum, X, L, M);
+			Dot(Sum_result, X, L, M);
 		break;
 	case 2:
 		if (geometry == "planar")
-			Sum(sum, X, M);
+			Sum(Sum_result, X, M);
 		else
-			Dot(sum, X, L, M);
+			Dot(Sum_result, X, L, M);
 		break;
 	case 3:
-		Sum(sum, X, M);
+		Sum(Sum_result, X, M);
 		break;
 	default:
 		return 0;
 		break;
 	}
+	Real sum{0};
+	#ifdef CUDA
+		TransferDataToHost(&sum, Sum_result, 1);
+	#else
+		sum = *Sum_result;
+	#endif
 	return sum;
 }
 
@@ -3010,14 +3025,19 @@ Real Lattice::ComputeTheta(Real *phi)
 	Real result = 0;
 	remove_bounds(phi);
 	if (gradients < 3 && geometry != "planar")
-		Dot(result, phi, L, M);
+		Dot(Sum_result, phi, L, M);
 	else
 	{
 		if (fjc == 1)
-			Sum(result, phi, M);
+			Sum(Sum_result, phi, M);
 		else
-			Dot(result, phi, L, M);
+			Dot(Sum_result, phi, L, M);
 	}
+	#ifdef CUDA
+		TransferDataToHost(&result, Sum_result, 1);
+	#else
+		result = *Sum_result;
+	#endif
 	return result;
 }
 
