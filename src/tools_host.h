@@ -237,7 +237,7 @@ inline void RemoveBoundaries(T* P, int jx, int jy, int bx1, int bxm, int by1, in
 #if __AVX2__
 template<typename T>
 void Dot(T *result, T *x, T *y, int M)   {
-	result = 0.0;
+	*result = 0.0;
 	alignas(32) T ftmp[4] = { 0.0, 0.0, 0.0, 0.0};
 	alignas(32)  T * z = new T[4];
 	__m256d mres;
