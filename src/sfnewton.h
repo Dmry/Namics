@@ -55,6 +55,7 @@ public:
 	int* reverseDirection;
 	int* mask;
 	Real* Sum_result;
+	Real* d_Ci;
 	int IV;
 	int iterations;
 	Real minimum;
