@@ -1229,7 +1229,6 @@ Real Lattice::Moment(Real *X, int n)
 
 Real Lattice::WeightedSum(Real *X)
 {
-	Real sum{0};
 	remove_bounds(X);
 	switch (gradients)
 	{
