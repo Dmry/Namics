@@ -47,6 +47,11 @@ void::Neighborlist::build() {
       m_subject.insert(m_subject.end(), temp_subject.begin(), temp_subject.end());
       m_neighbors.insert(m_neighbors.end(), temp_neighbors.begin(), temp_neighbors.end());
 
+      temp_subject.clear();
+      temp_subject.shrink_to_fit();
+      temp_neighbors.clear();
+      temp_neighbors.shrink_to_fit();
+
       m_configurations.clear();
   
 }

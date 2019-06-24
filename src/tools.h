@@ -72,6 +72,8 @@ void TransferDataToHost(T*, T*, int);
 template <typename T>
 void TransferDataToHostAsync(T*, T*, int);
 template <typename T>
+void TransferDataToDeviceAsync(T*, T*, int);
+template <typename T>
 void TransferDataToDevice(T*, T*, int);
 __global__ void bx(Real*, int, int, int, int, int, int, int);
 __global__ void b_x(Real*, int, int, int, int, int, int, int);
