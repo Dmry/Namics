@@ -1613,13 +1613,14 @@ void Lattice::Side(Real *X_side, Real *X, int M)
 		break;
 	case 3:
 		//set_bounds(X);
-		Add(X_side + JX, X, M - JX);
+		Second_order_fd_stencil(X_side, X, 1.0/6.0, MX+2, MY+2, MZ+2);
+ 		/* Add(X_side + JX, X, M - JX);
 		Add(X_side, X + JX, M - JX);
 		Add(X_side + JY, X, M - JY);
 		Add(X_side, X + JY, M - JY);
 		Add(X_side + 1, X, M - 1);
 		Add(X_side, X + 1, M - 1);
-		Norm(X_side, 1.0 / 6.0, M);
+		Norm(X_side, 1.0 / 6.0, M);  */
 		break;
 	default:
 		break;
@@ -1697,6 +1698,7 @@ void Lattice::propagate(Real *G, Real *G1, int s_from, int s_to, int M)
 		}
 		break;
 	case 3:
+		{
 		if (k > 0)
 		{
 			JX_ = jx[k];
@@ -1707,19 +1709,20 @@ void Lattice::propagate(Real *G, Real *G1, int s_from, int s_to, int M)
 
 
 		#ifdef CUDA
-		Add(gs + JX_, gs_1, M - JX_);
+   		/*Add(gs + JX_, gs_1, M - JX_);
 		Add(gs, gs_1 + JX_, M - JX_);
 		Add(gs + JY_, gs_1, M - JY_);
 		Add(gs, gs_1 + JY_, M - JY_);
 		Add(gs + 1, gs_1, M - 1);
 		Add(gs, gs_1 + 1, M - 1);
 		Norm(gs, 1.0 / 6.0, M);
-		Times(gs, gs, G1, M);
+		Times(gs, gs, G1, M);  */
+		Propagate_gs_locality(gs, gs_1, G1, JX_, JY_, 1, M);
+ 	//	Second_order_fd_stencil(G1, gs, gs_1, MX+2, MY+2, MZ+2);
 		#else
-		Propagate_gs_1_locality(gs, gs_1, JX_, JY_, 1, M);
 		Propagate_gs_locality(gs, gs_1, G1, JX_, JY_, 1, M);
 		#endif
-		
+		}
 		break;
 	default:
 		break;

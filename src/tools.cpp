@@ -27,6 +27,180 @@ __device__ void atomicAdd(Real* address, Real val)
 }
 #endif
 
+void Propagate_gs_locality(Real* gs, Real* gs_1, Real* G1, int JX, int JY, int JZ, int M) {
+	int n_blocks=(M)/block_size + ((M)%block_size == 0 ? 0:1);
+	propagate_gs_locality<<<n_blocks,block_size/* ,  block_size*sizeof(Real) */ >>>(gs, gs_1, G1, JX, JY, JZ, M);
+}
+
+__global__ void propagate_gs_locality(Real* gs, Real* gs_1, Real* G1, int JX, int JY, int JZ, int M) {
+	int idx = blockIdx.x*blockDim.x+threadIdx.x;
+/*   	extern __shared__ double shared_JZ[];
+
+	shared_JZ[threadIdx.x] = gs_1[idx-JZ];
+
+	__syncthreads(); 
+ */
+	if (M-JX) {
+		Real gs_register = gs[idx];
+
+		gs_register += gs_1[idx-JZ];	//shared_JZ[threadIdx.x];
+		gs_register += gs_1[idx-JY];
+		gs_register += gs_1[idx-JX];
+		gs_register += gs_1[idx+JZ];	//shared_JZ[threadIdx.x+2];
+		gs_register += gs_1[idx+JY];
+		gs_register += gs_1[idx+JX];
+		gs_register *= 1.0/6.0;
+		gs_register *= G1[idx];
+		gs[idx] = gs_register;
+	}
+}
+
+#define BDIMX    	4			// tile (and threadblock) size in x
+#define BDIMY    	4			// tile (and threadblock) size in y
+#define WAVEFRONTS 	2			// use multiple wave-fronts
+#define radius   	1 			// half of the order in space (k/2)
+#define BDIMZ    	2			// tile (and threadblock) size in z
+
+ void Second_order_fd_stencil(Real *g_output, Real *g_input, Real coeff, const int dimx, const int dimy, const int dimz) {
+
+	dim3 dimBlock(BDIMX,BDIMY, BDIMZ);
+	dim3 dimGridz(ceil(static_cast<Real>(dimz)/static_cast<Real>(BDIMX)),ceil(static_cast<Real>(dimy)/static_cast<Real>(BDIMY)),1);
+
+	second_order_fd_stencil<<<dimGridz,dimBlock>>>(g_output, g_input, coeff, dimz, dimy, dimx);
+}
+/*
+ __global__ void second_order_fd_stencil(Real *g_output, Real *g_input, Real coeff, const int dimx, const int dimy, const int dimz)
+{ 
+
+//**********	WARNING: OUR ARRAYS ARE DEPTH MAJOR, SO .x SHOULD BE FILLED WITH ELEMENTS IN Z AND VICE VERSA *********
+	// Contains the current 2D slice
+	__shared__ Real s_data[BDIMY+2*radius][BDIMX+2*radius];
+
+	int ix  = blockIdx.x*blockDim.x + threadIdx.x;
+	int iy  = blockIdx.y*blockDim.y + threadIdx.y;
+	
+	if (ix < dimx and iy < dimy) {
+		int wavefront = blockIdx.z;
+		int end = dimz/WAVEFRONTS;
+		
+		if (wavefront == gridDim.z-1)
+			end = dimz-((end-radius)*wavefront)-radius;
+
+		int stride  = dimx*dimy; 											// distance between 2D slices (in elements) 
+		int in_idx  = ix + iy*dimx + stride*(dimz/WAVEFRONTS-radius)*wavefront;	// index for reading input
+		int out_idx = 0;              										// index for writing output  
+
+		Real infront1;								 	// variables for input “in front of” the current slice: Add more for higher order stencils.
+		Real behind1; 									// variables for input “behind” the current slice: Add more for higher order stencils.
+		Real current;                           		// input value in the current slice
+
+		int tx = threadIdx.x + radius;  				// thread’s x-index into corresponding shared memory tile (adjusted for halos)
+		int ty = threadIdx.y + radius; 					// thread’s y-index into corresponding shared memory tile (adjusted for halos)
+
+		// fill the "in-front" and "behind" data
+		// This is read into the GPU's register, tiles are in shared mem
+		// Add in_idx += stride; for every extra stencil order register variable
+		current  = g_input[in_idx];		out_idx = in_idx; in_idx += stride;
+		infront1 = g_input[in_idx];		in_idx += stride;
+
+		for(int i=radius; i < end; i++) { 
+
+			////////////////////////////////////////// // advance the slice (move the thread-front)     
+			behind1  = current;     
+			current  = infront1;     
+			infront1 = g_input[in_idx];
+
+			in_idx  += stride;     
+			out_idx += stride;    
+
+			__syncthreads();
+
+			///////////////////////////////////////// // update the data slice in smem 
+			if(threadIdx.y<radius) // halo above/below     
+			{     
+				s_data[threadIdx.y][tx]              = g_input[out_idx-radius*dimx];     
+				s_data[threadIdx.y+BDIMY+radius][tx] = g_input[out_idx+BDIMY*dimx];    
+			} 
+			if(threadIdx.x<radius) // halo left/right     
+			{          
+				s_data[ty][threadIdx.x]              = g_input[out_idx-radius];          
+				s_data[ty][threadIdx.x+BDIMX+radius] = g_input[out_idx+BDIMX];     
+			} // update the slice in smem     
+
+			s_data[ty][tx] = current;
+
+			__syncthreads(); 
+
+			///////////////////////////////////////// // compute the output value     
+
+			// Optionally multiply any of the following with a coefficient
+			Real div  = 0; //current;  
+			div += coeff*(infront1 + behind1     + s_data[ty-1][tx] + s_data[ty+1][tx] + s_data[ty][tx-1] + s_data[ty][tx+1]);
+			g_output[out_idx] += div;
+		} 
+	}
+} */
+
+ __global__ void second_order_fd_stencil(Real *g_output, Real *g_input, Real coeff, const int dimx, const int dimy, const int dimz)
+{ 
+//**********	WARNING: OUR ARRAYS ARE DEPTH MAJOR, SO .x SHOULD BE FILLED WITH ELEMENTS IN Z AND VICE VERSA *********
+	// Contains the current 2D slice
+	__shared__ Real s_data[BDIMZ+2*radius][BDIMY+2*radius][BDIMX+2*radius];
+
+	int ix  = blockIdx.x*blockDim.x + threadIdx.x;
+	int iy  = blockIdx.y*blockDim.y + threadIdx.y;
+	int iz  = blockIdx.z*blockDim.z + threadIdx.z;
+	
+	if (ix < dimx and iy < dimy and iz < dimz) {
+		
+		int stride  = dimx*dimy; 															// distance between 2D slices (in elements) 
+		int in_idx  = ix + iy*dimx + iz*stride;	// index for reading input
+		int out_idx = 0;              														// index for writing output  
+
+		int tx = threadIdx.x + radius;  				// thread’s x-index into corresponding shared memory tile (adjusted for halos)
+		int ty = threadIdx.y + radius; 					// thread’s y-index into corresponding shared memory tile (adjusted for halos)
+		int tz = threadIdx.z + radius; 					// thread’s z-index into corresponding shared memory tile (adjusted for halos)
+
+		in_idx += stride; out_idx = in_idx;
+
+		for(int i=0; i < dimz/BDIMZ and out_idx < dimz*dimx*dimy-radius*stride; i++) { 
+
+			////////////////////////////////////////// // advance the slice (move the thread-front)   
+			in_idx  += stride*BDIMZ;     
+
+			///////////////////////////////////////// // update the data slice in smem 
+			if(threadIdx.z<radius) // halo front/back
+			{          
+				s_data[threadIdx.z][ty][tx]              = g_input[out_idx-radius*stride];          
+				s_data[threadIdx.z+BDIMZ+radius][ty][tx] = g_input[out_idx+BDIMZ*stride];     
+			}
+			if(threadIdx.y<radius) // halo above/below     
+			{     
+				s_data[tz][threadIdx.y][tx]              = g_input[out_idx-radius*dimx];     
+				s_data[tz][threadIdx.y+BDIMY+radius][tx] = g_input[out_idx+BDIMY*dimx];    
+			} 
+			if(threadIdx.x<radius) // halo left/right     
+			{          
+				s_data[tz][ty][threadIdx.x]              = g_input[out_idx-radius];          
+				s_data[tz][ty][threadIdx.x+BDIMX+radius] = g_input[out_idx+BDIMX];     
+			} // update the slice in smem     
+
+			s_data[tz][ty][tx] = g_input[out_idx];
+
+			__syncthreads(); 
+
+			///////////////////////////////////////// // compute the output value     
+
+			// Optionally multiply any of the following with a coefficient
+			//Real div  = 0; //current;  
+		//	Real div = (coeff*(s_data[tz-1][ty][tx] + s_data[tz+1][ty][tx] + s_data[tz][ty-1][tx] + s_data[tz][ty+1][tx] + s_data[tz][ty][tx-1] + s_data[tz][ty][tx+1]));
+			g_output[out_idx] += (coeff*(s_data[tz-1][ty][tx] + s_data[tz+1][ty][tx] + s_data[tz][ty-1][tx] + s_data[tz][ty+1][tx] + s_data[tz][ty][tx-1] + s_data[tz][ty][tx+1]));
+
+			out_idx += stride*BDIMZ;
+		} 
+	}
+}
+
 __global__ void distributeg1(Real *G1, Real *g1, int* Bx, int* By, int* Bz, int MM, int M, int n_box, int Mx, int My, int Mz, int MX, int MY, int MZ, int jx, int jy, int JX, int JY) {
 	int i = blockIdx.x*blockDim.x+threadIdx.x;
 	int j = blockIdx.y*blockDim.y+threadIdx.y;
@@ -70,27 +244,6 @@ __global__ void collectphi(Real* phi, Real* GN, Real* rho, int* Bx, int* By, int
 		}
 	}
 }
-
-__global__ void propagate_gs_1_locality(Real* gs, Real* gs_1, int JX, int JY, int JZ, int M) {
-	int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	if (idx<M-JX) {
-		gs[idx+JZ] += gs_1[idx];
-		gs[idx+JY] += gs_1[idx];
-		gs[idx+JX] += gs_1[idx];
-	}
-}
-
-__global__ void propagate_gs_locality(Real* gs, Real* gs_1, Real* G1, int JX, int JY, int JZ, int M) {
-	int idx = blockIdx.x*blockDim.x+threadIdx.x;
-	if (idx<M-JX) {
-		gs[idx] += gs_1[idx+JZ];
-		gs[idx] += gs_1[idx+JY];
-		gs[idx] += gs_1[idx+JX];
-		gs[idx] *= 1.0/6.0;
-		gs[idx] *= G1[idx];
-	}
-}
-
 
 
 __global__ void dot(Real *a, Real *b, Real *dot_res, int M)
@@ -347,6 +500,13 @@ template<typename T>
 void TransferDataToHost(T *H, T *D, int M)    {
 	cudaMemcpy(H, D, sizeof(T)*M,cudaMemcpyDeviceToHost);
 }
+
+template void TransferDataToHostAsync<Real>(Real*, Real*, int);
+template<typename T>
+void TransferDataToHostAsync(T *H, T *D, int M)    {
+	cudaMemcpyAsync(H, D, sizeof(T)*M,cudaMemcpyDeviceToHost);
+}
+
 
 //Define types allowed by TransferDataToDevice
 template void TransferDataToDevice<Real>(Real*, Real*, int);

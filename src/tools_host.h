@@ -131,21 +131,37 @@ void bx(T* P, int mmx, int My, int Mz, int bx1, int bxm, int jx, int jy)   {
 	}
 }
 
-inline void Propagate_gs_1_locality(Real* gs, Real* gs_1, int JX, int JY, int JZ, int M) {
-	for ( int i = 0 ; i < M - JX ; ++i) {
-		gs[i+JZ] += gs_1[i];
-		gs[i+JY] += gs_1[i];
-		gs[i+JX] += gs_1[i];
+
+inline void Propagate_gs_locality(Real* gs, Real* gs_1, Real* G1, int JX, int JY, int JZ, int M) {
+	#pragma GCC ivdep
+	for ( int i = JX ; i < M-JX ; ++i) {
+		gs[i] += gs_1[i-JZ];
+		gs[i] += gs_1[i-JX];
+		gs[i] += gs_1[i+JX];
+		gs[i] += gs_1[i-JY];
+		gs[i] += gs_1[i+JY];
+		gs[i] += gs_1[i+JZ];
+		gs[i] *= 1.0/6.0;
+		gs[i] *= G1[i];
 	}
 }
 
-inline void Propagate_gs_locality(Real* gs, Real* gs_1, Real* G1, int JX, int JY, int JZ, int M) {
-	for ( int i = 0 ; i < M-JX ; ++i) {
-		gs[i] += gs_1[i+JZ];
-		gs[i] += gs_1[i+JY];
-		gs[i] += gs_1[i+JX];
-		gs[i] *= 1.0/6.0;
-		gs[i] *= G1[i];
+
+inline void Second_order_fd_stencil(Real *g_output, Real *g_input, Real coeff, const int dimx, const int dimy, const int dimz) {
+	int JZ = 1;
+	int JY = dimz;
+	int JX = dimy*dimz;
+	int M = dimy*dimz*dimx;
+	#pragma GCC ivdep
+	for ( int i = JX ; i < M-JX ; ++i) {
+		g_output[i] += g_input[i-JZ];
+		g_output[i] += g_input[i-JX];
+		g_output[i] += g_input[i+JX];
+		g_output[i] += g_input[i-JY];
+		g_output[i] += g_input[i+JY];
+		g_output[i] += g_input[i+JZ];
+		g_output[i] *= coeff;
+
 	}
 }
 

@@ -20,9 +20,9 @@
 //extern cublasHandle_t handle;
 extern const int block_size;
 
+__global__ void second_order_fd_stencil(Real *g_output, Real *g_input, Real coeff, const int dimx, const int dimy, const int dimz);
 __global__ void distributeg1(Real*, Real*, int*, int*, int*, int, int, int, int, int, int, int, int, int, int, int, int, int);
 __global__ void collectphi(Real*, Real*, Real*, int*, int*, int*, int, int, int, int, int, int, int, int, int, int, int, int, int);
-__global__ void propagate_gs_1_locality(Real* gs, Real* gs_1, int JX, int JY, int JZ, int M);
 __global__ void propagate_gs_locality(Real* gs, Real* gs_1, Real* G1, int JX, int JY, int JZ, int M);
 __global__ void sum(Real*, Real*, int);
 __global__ void sum(int*, int*, int);
@@ -57,7 +57,6 @@ __global__ void addgradsquare(Real*, Real*, Real*, Real*, int);
 __global__ void putalpha(Real*, Real*, Real*, Real, Real, int);
 __global__ void putalpha(Real*, Real*, Real, Real, int);
 __global__ void div(Real*, Real*, int);
-__global__ void propagate(Real *gs, Real *g_1, int JX, int JY, int JZ, int M);
 __global__ void oneminusphitot(Real*, Real*, int);
 __global__ void addg(Real*, Real*, Real*, int);
 __global__ void computegn(Real*, Real*, int, int);
@@ -67,6 +66,8 @@ __global__ void upq(Real*, Real*, Real*, Real*, int, int, Real, int*, int);
 __global__ void uppsi(Real*, Real*, Real*, Real*, int, int, Real, int*, int);
 template <typename T>
 void TransferDataToHost(T*, T*, int);
+template <typename T>
+void TransferDataToHostAsync(T*, T*, int);
 template <typename T>
 void TransferDataToDevice(T*, T*, int);
 __global__ void bx(Real*, int, int, int, int, int, int, int);
@@ -89,8 +90,8 @@ int* AllIntOnDev(int);
 Real* AllOnDev(int);
 int* AllManagedIntOnDev(int);
 Real* AllManagedOnDev(int);
-Real* AllOnDev(int);
-void Propagate_gs_1_locality(Real* gs, Real* gs_1, int JX, int JY, int JZ, int M);
+Real* AllUnpagableOnHost(int);
+void Second_order_fd_stencil(Real *g_output, Real *g_input, Real coeff, const int dimx, const int dimy, const int dimz);
 void Propagate_gs_locality(Real* gs, Real* gs_1, Real* G1, int JX, int JY, int JZ, int M);
 void AddTimes(Real*, Real*, Real*, int);
 void Times(Real*, Real*, Real*, int);
@@ -121,7 +122,6 @@ void AddGradSquare(Real*, Real*, Real*, Real*, int);
 void PutAlpha(Real*, Real*, Real*, Real, Real, int);
 void PutAlpha(Real*, Real*, Real, Real, int);
 void Div(Real*, Real*, int);
-void Propagate(Real *gs, Real *g_1, int JX, int JY, int JZ, int M);
 void AddG(Real*, Real*, Real*, int);
 void OneMinusPhitot(Real*, Real*, int);
 void ComputeGN(Real*, Real*, int, int);
