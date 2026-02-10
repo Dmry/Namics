@@ -27,6 +27,8 @@
 #include "mesodyn/flux.h"
 #include "mesodyn/collection_procedures.h"
 #include "mesodyn/perturbation.h"
+#include "mesodyn/cl_dynamics.h"
+#include "mesodyn/cl_averager.h"
 
 #ifdef PAR_MESODYN_THRUST
 #include <thrust/device_vector.h>
@@ -84,6 +86,10 @@ private:
   const bool use_epd;
   const Real epd_lambda;
   const size_t epd_iterations;
+  const bool use_cl;
+  const Real cl_dt;
+  const size_t cl_equilibration;
+  const Real cl_concentration;
 
     enum init {
     INIT_HOMOGENEOUS,
@@ -140,6 +146,9 @@ private:
   unique_ptr<Norm_densities> norm_densities;
   unique_ptr<Order_parameter> order_parameter;
   unique_ptr<Treat_as_zero> enforce_minimum_density;
+
+  unique_ptr<CL_Dynamics> cl_dynamics;
+  unique_ptr<CL_Averager> cl_averager;
 
 
 public:

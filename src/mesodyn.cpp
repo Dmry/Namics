@@ -40,6 +40,10 @@ vector<string> Mesodyn::KEYS
     "epd",
     "epd_lambda",
     "epd_iterations",
+    "cl",
+    "cl_dt",
+    "cl_equilibration",
+    "cl_concentration"
 };
 
 Mesodyn::Mesodyn(int start, vector<Input*> In_, vector<Lattice*> Lat_, vector<Segment*> Seg_, vector<State*> Sta_, vector<Reaction*> Rea_, vector<Molecule*> Mol_, vector<System*> Sys_, vector<Solve_scf*> New_, string name_)
@@ -77,6 +81,10 @@ Mesodyn::Mesodyn(int start, vector<Input*> In_, vector<Lattice*> Lat_, vector<Se
       use_epd                          { initialize<bool>("epd", 0)},
       epd_lambda                       { initialize<Real>("epd_lambda", 0.5)},
       epd_iterations                   { initialize<size_t>("epd_iterations", 1)},
+      use_cl                           { initialize<bool>("cl", 0)},
+      cl_dt                            { initialize<Real>("cl_dt", 0.01)},
+      cl_equilibration                 { initialize<size_t>("cl_equilibration", 1000)},
+      cl_concentration                 { initialize<Real>("cl_concentration", 1.0)},
 
       //Variables for rho initialization
       initialization_mode              { INIT_HOMOGENEOUS },
@@ -163,6 +171,46 @@ bool Mesodyn::mesodyn() {
 
   cout << "Mesodyn is all set, starting calculations.." << endl;// << endl << endl;
 
+  // Complex Langevin branch
+  if (use_cl) {
+    cl_dynamics = unique_ptr<CL_Dynamics>(new CL_Dynamics(
+        Lat[0], Mol, Seg, Sys[0], cl_dt, cl_concentration,
+        seed_specified ? (int)seed : 42));
+    cl_averager = unique_ptr<CL_Averager>(new CL_Averager(
+        component_no, Lat[0]->M, cl_equilibration));
+    cl_dynamics->initialize(components);
+
+    cout << "Starting Complex Langevin sampling (dt=" << cl_dt
+         << ", equilibration=" << cl_equilibration << ")" << endl;
+
+    for (t = 1; t < timesteps+1; t++) {
+      cout << "CL: t = " << t << " / " << timesteps << endl;
+
+      cl_dynamics->step();
+
+      vector<Real*> phi_R_vec(component_no);
+      for (size_t i = 0; i < component_no; i++)
+        phi_R_vec[i] = cl_dynamics->density_real(i);
+      cl_averager->accumulate(phi_R_vec, t);
+
+      if (cl_averager->sample_count() > 0)
+        for (size_t i = 0; i < component_no; i++)
+          Cp((Real*)components[i]->rho, cl_averager->mean(i), Lat[0]->M);
+
+      order_parameter->execute();
+      cout << "Order parameter: " << order_parameter->attach()
+           << "  samples: " << cl_averager->sample_count() << endl;
+
+      write_parameters();
+
+      if (t > save_delay && t % timebetweensaves == 0)
+        write_profile();
+    }
+
+    cout << "Done." << endl;
+    return true;
+  }
+
   // Prepare callback functions for SolveMesodyn in Newton
   function<Real*()> solver_callback = bind(&Mesodyn::solve_crank_nicolson, this);
   function<void(Real*,size_t)> loader_callback = bind(&Mesodyn::load_alpha, this, std::placeholders::_1, std::placeholders::_2);
@@ -195,7 +243,7 @@ bool Mesodyn::mesodyn() {
       if (use_epd)
         New[0]->SolveMesodynEPD(loader_callback, solver_callback, epd_lambda, epd_iterations);
       else
-      New[0]->SolveMesodyn(loader_callback, solver_callback);
+        New[0]->SolveMesodyn(loader_callback, solver_callback);
 
       // norm_densities->execute();
 
@@ -222,7 +270,7 @@ bool Mesodyn::mesodyn() {
       }
 
        if (!use_epd)
-       Zero(New.back()->xx, system_size);
+         Zero(New.back()->xx, system_size);
     
     }
   } // time loop
@@ -509,6 +557,13 @@ void Mesodyn::write_parameters() {
        Out[0]->push("epd_lambda", epd_lambda);
        Out[0]->push("epd_iterations", (int)epd_iterations);
        Out[0]->push("scf_residual", New[0]->residual);
+     }
+     if (use_cl) {
+       Out[0]->push("cl_dt", cl_dt);
+       Out[0]->push("cl_equilibration", (int)cl_equilibration);
+       Out[0]->push("cl_concentration", cl_concentration);
+       if (cl_averager)
+         Out[0]->push("cl_samples", (int)cl_averager->sample_count());
      }
 
      Out[0]->WriteOutput(t);
