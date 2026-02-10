@@ -106,7 +106,7 @@ public:
 	void DIIS(Real* , Real*, Real*, Real* , Real* ,Real*, int, int , int, int);
 	bool iterate_conjugate_gradient(Real*,int,int,Real,Real);
 	void Hd(Real *, Real *, Real *, Real *, Real *, Real*, Real);
-private:
+protected:
 	Real computeresidual(Real*, int);
 
 };

@@ -722,6 +722,37 @@ bool Solve_scf::SolveMesodyn(function< void(Real*, size_t) > alpha_callback, fun
 	return success;
 }
 
+bool Solve_scf::SolveMesodynEPD(function< void(Real*, size_t) > alpha_callback, function< Real*() > flux_callback, Real epd_lambda, size_t epd_iterations) {
+	if(debug) cout <<"Solve (mesodyn EPD) in  Solve_scf " << endl;
+	mesodyn_flux = flux_callback;
+	mesodyn_load_alpha = alpha_callback;
+	mesodyn = true;
+	gradient = MESODYN;
+
+#ifdef CUDA
+	Real* g_local = (Real*)AllOnDev(iv); Zero(g_local, iv);
+#else
+	Real* g_local = (Real*)malloc(iv * sizeof(Real));
+#endif
+
+	for (size_t i = 0; i < epd_iterations; ++i) {
+		residuals(xx, g_local);
+		YplusisCtimesX(xx, g_local, -epd_lambda, iv);
+	}
+
+	residual = computeresidual(g_local, iv);
+	iterations = epd_iterations;
+
+#ifdef CUDA
+	cudaFree(g_local);
+#else
+	free(g_local);
+#endif
+
+	Sys[0]->CheckResults(false);
+	return true;
+}
+
 
 bool Solve_scf::SuperIterate(int search, int target,int ets,int etm, int bm) {
 if(debug) cout <<"SuperIteration in  Solve_scf " << endl;

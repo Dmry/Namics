@@ -36,7 +36,10 @@ vector<string> Mesodyn::KEYS
     "treat_lower_than_as_zero",
     "adaptive_tolerance_modifier",
     "adaptive_tolerance",
-    "correlated_noise"
+    "correlated_noise",
+    "epd",
+    "epd_lambda",
+    "epd_iterations",
 };
 
 Mesodyn::Mesodyn(int start, vector<Input*> In_, vector<Lattice*> Lat_, vector<Segment*> Seg_, vector<State*> Sta_, vector<Reaction*> Rea_, vector<Molecule*> Mol_, vector<System*> Sys_, vector<Solve_scf*> New_, string name_)
@@ -71,6 +74,9 @@ Mesodyn::Mesodyn(int start, vector<Input*> In_, vector<Lattice*> Lat_, vector<Se
       grand_cannonical_time_average    { initialize<size_t>("grand_cannonical_time_average", timesteps > 100 ? 20 : 5 ) },
       grand_cannonical_molecule        { initialize<size_t>("grand_cannonical_molecule", Sys[0]->solvent == 0 ? 1 : 0)},
       correlated_noise                 { initialize<bool>("correlated_noise", 0)},
+      use_epd                          { initialize<bool>("epd", 0)},
+      epd_lambda                       { initialize<Real>("epd_lambda", 0.5)},
+      epd_iterations                   { initialize<size_t>("epd_iterations", 1)},
 
       //Variables for rho initialization
       initialization_mode              { INIT_HOMOGENEOUS },
@@ -186,6 +192,9 @@ bool Mesodyn::mesodyn() {
       for (auto& all_fluxes : fluxes) all_fluxes->J.save_state();
       for (auto& all_components : components) all_components->rho.save_state();
 
+      if (use_epd)
+        New[0]->SolveMesodynEPD(loader_callback, solver_callback, epd_lambda, epd_iterations);
+      else
       New[0]->SolveMesodyn(loader_callback, solver_callback);
 
       // norm_densities->execute();
@@ -212,6 +221,7 @@ bool Mesodyn::mesodyn() {
         adapt_tolerance();
       }
 
+       if (!use_epd)
        Zero(New.back()->xx, system_size);
     
     }
@@ -495,6 +505,11 @@ void Mesodyn::write_parameters() {
      Out[0]->push("variance", variance);
      Out[0]->push("delta_t", dt);
      Out[0]->push("cn_ratio", cn_ratio);
+     if (use_epd) {
+       Out[0]->push("epd_lambda", epd_lambda);
+       Out[0]->push("epd_iterations", (int)epd_iterations);
+       Out[0]->push("scf_residual", New[0]->residual);
+     }
 
      Out[0]->WriteOutput(t);
      Out.clear();

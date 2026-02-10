@@ -127,6 +127,7 @@ public:
 	bool Solve(bool);
 
 	bool SolveMesodyn(function< void(Real*, size_t) >, function< Real*() >); //first argument should contain rho
+	bool SolveMesodynEPD(function< void(Real*, size_t) >, function< Real*() >, Real, size_t); //EPD-accelerated single-pass solver
 	function< Real*() > mesodyn_flux;
 
 	bool SuperIterate(int,int,int,int,int);

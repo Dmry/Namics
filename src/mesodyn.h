@@ -81,6 +81,9 @@ private:
   const size_t grand_cannonical_time_average;
   const size_t grand_cannonical_molecule;
   const bool correlated_noise;
+  const bool use_epd;
+  const Real epd_lambda;
+  const size_t epd_iterations;
 
     enum init {
     INIT_HOMOGENEOUS,
