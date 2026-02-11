@@ -1,24 +1,35 @@
 #include "complex_propagator.h"
-#include "../tools.h"
 #include <cmath>
 
-ComplexPropagator::ComplexPropagator(Lattice* lat_) : lat(lat_), M(lat_->M) {
-	buf_R = (Real*)malloc(M * sizeof(Real));
-	buf_I = (Real*)malloc(M * sizeof(Real));
-}
-
-ComplexPropagator::~ComplexPropagator() {
-	free(buf_R);
-	free(buf_I);
-}
-
-void ComplexPropagator::compute_boltzmann(Real* W_R, Real* W_I,
-                                          Real* G1_R, Real* G1_I) {
-	for (int i = 0; i < M; i++) {
+struct boltzmann_functor {
+	Real *W_R, *W_I, *G1_R, *G1_I;
+	boltzmann_functor(Real* wr, Real* wi, Real* gr, Real* gi)
+		: W_R(wr), W_I(wi), G1_R(gr), G1_I(gi) {}
+	DEVICE_LAMBDA void operator()(int i) const {
 		Real e = exp(-W_R[i]);
 		G1_R[i] =  e * cos(W_I[i]);
 		G1_I[i] = -e * sin(W_I[i]);
 	}
+};
+
+struct complex_multiply_functor {
+	Real *dst_R, *dst_I, *a_R, *a_I, *b_R, *b_I;
+	complex_multiply_functor(Real* dr, Real* di, Real* ar, Real* ai, Real* br, Real* bi)
+		: dst_R(dr), dst_I(di), a_R(ar), a_I(ai), b_R(br), b_I(bi) {}
+	DEVICE_LAMBDA void operator()(int i) const {
+		dst_R[i] = a_R[i] * b_R[i] - a_I[i] * b_I[i];
+		dst_I[i] = a_R[i] * b_I[i] + a_I[i] * b_R[i];
+	}
+};
+
+ComplexPropagator::ComplexPropagator(Lattice* lat_)
+	: lat(lat_), M(lat_->M), buf_R(M, 0.0), buf_I(M, 0.0) {}
+
+ComplexPropagator::~ComplexPropagator() {}
+
+void ComplexPropagator::compute_boltzmann(Real* W_R, Real* W_I,
+                                          Real* G1_R, Real* G1_I) {
+	parallel_for(M, boltzmann_functor(W_R, W_I, G1_R, G1_I));
 }
 
 void ComplexPropagator::propagate_step(Real* dst_R, Real* dst_I,
@@ -27,11 +38,10 @@ void ComplexPropagator::propagate_step(Real* dst_R, Real* dst_I,
 	lat->set_bounds(src_R);
 	lat->set_bounds(src_I);
 
-	lat->Side(buf_R, src_R, M);
-	lat->Side(buf_I, src_I, M);
+	Real* br = raw_ptr(buf_R);
+	Real* bi = raw_ptr(buf_I);
+	lat->Side(br, src_R, M);
+	lat->Side(bi, src_I, M);
 
-	for (int i = 0; i < M; i++) {
-		dst_R[i] = G1_R[i] * buf_R[i] - G1_I[i] * buf_I[i];
-		dst_I[i] = G1_R[i] * buf_I[i] + G1_I[i] * buf_R[i];
-	}
+	parallel_for(M, complex_multiply_functor(dst_R, dst_I, G1_R, G1_I, br, bi));
 }

@@ -1,31 +1,19 @@
 #include "cl_averager.h"
-#include "../tools.h"
 #include <cmath>
+#include <algorithm>
 
 CL_Averager::CL_Averager(int n_comp, int M, size_t equilibration)
 	: n_comp_(n_comp), M_(M), equilibration_(equilibration), count_(0)
 {
-	sum_.resize(n_comp);
-	sum_sq_.resize(n_comp);
-	mean_.resize(n_comp);
-	var_.resize(n_comp);
-
 	for (int i = 0; i < n_comp; i++) {
-		sum_[i]    = (Real*)calloc(M, sizeof(Real));
-		sum_sq_[i] = (Real*)calloc(M, sizeof(Real));
-		mean_[i]   = (Real*)calloc(M, sizeof(Real));
-		var_[i]    = (Real*)calloc(M, sizeof(Real));
+		sum_.emplace_back(M, 0.0);
+		sum_sq_.emplace_back(M, 0.0);
+		mean_.emplace_back(M, 0.0);
+		var_.emplace_back(M, 0.0);
 	}
 }
 
-CL_Averager::~CL_Averager() {
-	for (int i = 0; i < n_comp_; i++) {
-		free(sum_[i]);
-		free(sum_sq_[i]);
-		free(mean_[i]);
-		free(var_[i]);
-	}
-}
+CL_Averager::~CL_Averager() {}
 
 void CL_Averager::accumulate(vector<Real*>& phi_R, size_t t) {
 	if (t < equilibration_) return;
@@ -47,9 +35,9 @@ void CL_Averager::accumulate(vector<Real*>& phi_R, size_t t) {
 void CL_Averager::reset() {
 	count_ = 0;
 	for (int i = 0; i < n_comp_; i++) {
-		Zero(sum_[i], M_);
-		Zero(sum_sq_[i], M_);
-		Zero(mean_[i], M_);
-		Zero(var_[i], M_);
+		std::fill(sum_[i].begin(), sum_[i].end(), 0.0);
+		std::fill(sum_sq_[i].begin(), sum_sq_[i].end(), 0.0);
+		std::fill(mean_[i].begin(), mean_[i].end(), 0.0);
+		std::fill(var_[i].begin(), var_[i].end(), 0.0);
 	}
 }

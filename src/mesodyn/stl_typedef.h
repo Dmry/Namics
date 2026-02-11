@@ -12,6 +12,8 @@
     #include <thrust/device_vector.h>
     #include <thrust/host_vector.h>
     #include <thrust/device_ptr.h>
+    #include <thrust/for_each.h>
+    #include <thrust/iterator/counting_iterator.h>
     namespace stl = thrust;
     //const auto reduce = accumulate;
   #else
@@ -39,5 +41,24 @@
     #define EXEC_SEQ
     #define EXEC_PAR_UNSEQ
   #endif
+
+  template<typename T>
+  inline T* raw_ptr(stl::device_vector<T>& v) {
+  #ifdef PAR_MESODYN_THRUST
+    return thrust::raw_pointer_cast(v.data());
+  #else
+    return v.data();
+  #endif
+  }
+
+  template<typename F>
+  inline void parallel_for(int n, F func) {
+  #ifdef PAR_MESODYN_THRUST
+    thrust::for_each(thrust::counting_iterator<int>(0),
+                     thrust::counting_iterator<int>(n), func);
+  #else
+    for (int i = 0; i < n; i++) func(i);
+  #endif
+  }
 
 #endif

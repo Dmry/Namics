@@ -235,6 +235,18 @@ struct is_not_unity_functor
   }
 };
 
+struct compressibility_functor
+{
+  const double kappa;
+
+  compressibility_functor(double _kappa) : kappa(_kappa) {}
+
+  __host__ __device__ double operator()(const double &p, const double &f) const
+  {
+    return f + kappa * (p - 1.0);
+  }
+};
+
 #else
 
 #include "tools_host.h"

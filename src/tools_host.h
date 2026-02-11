@@ -179,6 +179,18 @@ struct is_not_unity_functor
 	}
 };
 
+struct compressibility_functor
+{
+	const Real kappa;
+
+	compressibility_functor(Real _kappa) : kappa(_kappa) {}
+
+	Real operator()(const Real &p, const Real &f) const
+	{
+		return f + kappa * (p - 1.0);
+	}
+};
+
 //typedef long double Real;
 
 

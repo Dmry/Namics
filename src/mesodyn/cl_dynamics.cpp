@@ -2,7 +2,31 @@
 #include "../tools.h"
 #include <cmath>
 #include <algorithm>
-#include <iostream>
+
+#ifdef PAR_MESODYN_THRUST
+#include <thrust/transform.h>
+#endif
+
+struct phi_accumulate_functor {
+	Real *phi_R, *phi_I;
+	Real *f_R, *f_I, *b_R, *b_I;
+	Real *g_R, *g_I;
+	Real norm_R, norm_I;
+	phi_accumulate_functor(Real* pr, Real* pi, Real* fr, Real* fi,
+	    Real* br, Real* bi, Real* gr, Real* gi, Real nr, Real ni)
+		: phi_R(pr), phi_I(pi), f_R(fr), f_I(fi),
+		  b_R(br), b_I(bi), g_R(gr), g_I(gi), norm_R(nr), norm_I(ni) {}
+	DEVICE_LAMBDA void operator()(int r) const {
+		Real p_R = f_R[r] * b_R[r] - f_I[r] * b_I[r];
+		Real p_I = f_R[r] * b_I[r] + f_I[r] * b_R[r];
+		Real g2 = g_R[r] * g_R[r] + g_I[r] * g_I[r];
+		if (g2 < 1e-30) g2 = 1e-30;
+		Real d_R = (p_R * g_R[r] + p_I * g_I[r]) / g2;
+		Real d_I = (p_I * g_R[r] - p_R * g_I[r]) / g2;
+		phi_R[r] += norm_R * d_R - norm_I * d_I;
+		phi_I[r] += norm_R * d_I + norm_I * d_R;
+	}
+};
 
 CL_Dynamics::CL_Dynamics(Lattice* lat_,
                          const vector<Molecule*>& Mol_,
@@ -12,8 +36,9 @@ CL_Dynamics::CL_Dynamics(Lattice* lat_,
                          Real concentration,
                          int seed)
 	: lat(lat_), Mol(Mol_), Seg(Seg_), Sys(Sys_),
-	  M(lat_->M), dt_(dt),
+	  M(lat_->M), dt_(dt), C_(concentration),
 	  noise_scale(sqrt(2.0 * dt / concentration)),
+	  kappa_(100.0),
 	  rng(seed), normal_dist(0.0, 1.0)
 {
 	prop = unique_ptr<ComplexPropagator>(new ComplexPropagator(lat));
@@ -22,7 +47,6 @@ CL_Dynamics::CL_Dynamics(Lattice* lat_,
 	n_mol_  = Mol.size();
 	n_seg_  = Seg.size();
 
-	// Build segment <-> component mappings
 	sysmolmon.resize(n_comp_);
 	for (int i = 0; i < n_comp_; i++)
 		sysmolmon[i] = Sys->SysMolMonList[i];
@@ -31,64 +55,60 @@ CL_Dynamics::CL_Dynamics(Lattice* lat_,
 	for (int i = 0; i < n_comp_; i++)
 		seg_to_comp[sysmolmon[i]] = i;
 
-	// Allocate per-component arrays
-	W_R.resize(n_comp_);     W_I.resize(n_comp_);
-	phi_R.resize(n_comp_);   phi_I.resize(n_comp_);
-	force_R.resize(n_comp_); force_I.resize(n_comp_);
-
 	for (int i = 0; i < n_comp_; i++) {
-		W_R[i]     = (Real*)calloc(M, sizeof(Real));
-		W_I[i]     = (Real*)calloc(M, sizeof(Real));
-		phi_R[i]   = (Real*)calloc(M, sizeof(Real));
-		phi_I[i]   = (Real*)calloc(M, sizeof(Real));
-		force_R[i] = (Real*)calloc(M, sizeof(Real));
-		force_I[i] = (Real*)calloc(M, sizeof(Real));
+		W_R.emplace_back(M, 0.0);     W_I.emplace_back(M, 0.0);
+		phi_R.emplace_back(M, 0.0);   phi_I.emplace_back(M, 0.0);
+		force_R.emplace_back(M, 0.0); force_I.emplace_back(M, 0.0);
 	}
 
-	// Boltzmann factors indexed by segment type (only allocate for components)
-	G1_R.assign(n_seg_, nullptr);
-	G1_I.assign(n_seg_, nullptr);
+	G1_R.resize(n_seg_);
+	G1_I.resize(n_seg_);
 	for (int i = 0; i < n_comp_; i++) {
 		int seg = sysmolmon[i];
-		G1_R[seg] = (Real*)calloc(M, sizeof(Real));
-		G1_I[seg] = (Real*)calloc(M, sizeof(Real));
+		G1_R[seg].resize(M, 0.0);
+		G1_I[seg].resize(M, 0.0);
 	}
 
-	pressure_R = (Real*)calloc(M, sizeof(Real));
-	pressure_I = (Real*)calloc(M, sizeof(Real));
+	pressure_R.resize(M, 0.0);
+	pressure_I.resize(M, 0.0);
 
-	// Forward propagator sized for longest chain
 	max_chainlength = 1;
 	for (int j = 0; j < n_mol_; j++)
 		if (Mol[j]->chainlength > max_chainlength)
 			max_chainlength = Mol[j]->chainlength;
 
-	Gg_f_R = (Real*)calloc(max_chainlength * M, sizeof(Real));
-	Gg_f_I = (Real*)calloc(max_chainlength * M, sizeof(Real));
-	Gg_b_R = (Real*)calloc(2 * M, sizeof(Real));
-	Gg_b_I = (Real*)calloc(2 * M, sizeof(Real));
+	Gg_f_R.resize(max_chainlength * M, 0.0);
+	Gg_f_I.resize(max_chainlength * M, 0.0);
+	Gg_b_R.resize(2 * M, 0.0);
+	Gg_b_I.resize(2 * M, 0.0);
+
+	d_noise.resize(M);
+	h_noise.resize(M);
+	for (int i = 0; i < n_comp_; i++)
+		h_phi_R.emplace_back(M, 0.0);
 }
 
-CL_Dynamics::~CL_Dynamics() {
-	for (int i = 0; i < n_comp_; i++) {
-		free(W_R[i]);     free(W_I[i]);
-		free(phi_R[i]);   free(phi_I[i]);
-		free(force_R[i]); free(force_I[i]);
-	}
-	for (int i = 0; i < n_comp_; i++) {
-		int seg = sysmolmon[i];
-		free(G1_R[seg]); free(G1_I[seg]);
-	}
-	free(pressure_R); free(pressure_I);
-	free(Gg_f_R); free(Gg_f_I);
-	free(Gg_b_R); free(Gg_b_I);
-}
+CL_Dynamics::~CL_Dynamics() {}
 
 void CL_Dynamics::initialize(vector<shared_ptr<IComponent>>& components) {
-	// Initialize W_R from mean-field relation: W_i = Sigma_k chi_{ik} * phi_k
+	Real total_phibulk = 0;
+	int solvent_mol = -1;
+	for (int j = 0; j < n_mol_; j++) {
+		if (Mol[j]->phibulk > 0) {
+			total_phibulk += Mol[j]->phibulk;
+		} else if (Mol[j]->freedom == "solvent") {
+			solvent_mol = j;
+		} else if (Mol[j]->theta > 0) {
+			Mol[j]->phibulk = Mol[j]->theta / lat->volume;
+			total_phibulk += Mol[j]->phibulk;
+		}
+	}
+	if (solvent_mol >= 0)
+		Mol[solvent_mol]->phibulk = 1.0 - total_phibulk;
+
 	for (int i = 0; i < n_comp_; i++) {
-		Zero(W_R[i], M);
-		Zero(W_I[i], M);
+		stl::fill(EXEC_PAR W_R[i].begin(), W_R[i].end(), 0.0);
+		stl::fill(EXEC_PAR W_I[i].begin(), W_I[i].end(), 0.0);
 
 		int seg_i = sysmolmon[i];
 		for (int k = 0; k < n_seg_; k++) {
@@ -96,10 +116,13 @@ void CL_Dynamics::initialize(vector<shared_ptr<IComponent>>& components) {
 			if (chi != 0.0) {
 				int comp_k = seg_to_comp[k];
 				if (comp_k >= 0) {
-					Real* rho = (Real*)components[comp_k]->rho;
-					YplusisCtimesX(W_R[i], rho, chi, M);
+					stl::transform(EXEC_PAR
+						components[comp_k]->rho.begin(),
+						components[comp_k]->rho.end(),
+						W_R[i].begin(), W_R[i].begin(),
+						saxpy_functor(chi));
 				} else {
-					YplusisCtimesX(W_R[i], Seg[k]->phi_side, chi, M);
+					YplusisCtimesX(raw_ptr(W_R[i]), Seg[k]->phi_side, chi, M);
 				}
 			}
 		}
@@ -109,7 +132,8 @@ void CL_Dynamics::initialize(vector<shared_ptr<IComponent>>& components) {
 void CL_Dynamics::compute_boltzmann_all() {
 	for (int i = 0; i < n_comp_; i++) {
 		int seg = sysmolmon[i];
-		prop->compute_boltzmann(W_R[i], W_I[i], G1_R[seg], G1_I[seg]);
+		prop->compute_boltzmann(raw_ptr(W_R[i]), raw_ptr(W_I[i]),
+		                        raw_ptr(G1_R[seg]), raw_ptr(G1_I[seg]));
 	}
 }
 
@@ -118,81 +142,75 @@ void CL_Dynamics::propagate_molecule(int mol_idx) {
 	int chainlength = mol->chainlength;
 	int n_blocks = mol->n_mon.size();
 
-	// Forward propagation
+	Real* gf_R = raw_ptr(Gg_f_R);
+	Real* gf_I = raw_ptr(Gg_f_I);
+	Real* gb_R = raw_ptr(Gg_b_R);
+	Real* gb_I = raw_ptr(Gg_b_I);
+
+	// forward propagation
 	int s = 0;
 	for (int b = 0; b < n_blocks; b++) {
 		int seg = mol->mon_nr[b];
 		int N = mol->n_mon[b];
+		Real* g1r = raw_ptr(G1_R[seg]);
+		Real* g1i = raw_ptr(G1_I[seg]);
 
 		for (int k = 0; k < N; k++) {
 			if (s == 0) {
-				// Initialize: Gg_f(0) = G1
-				Cp(Gg_f_R, G1_R[seg], M);
-				Cp(Gg_f_I, G1_I[seg], M);
+				stl::copy(EXEC_PAR G1_R[seg].begin(), G1_R[seg].end(),
+					Gg_f_R.begin());
+				stl::copy(EXEC_PAR G1_I[seg].begin(), G1_I[seg].end(),
+					Gg_f_I.begin());
 			} else {
 				prop->propagate_step(
-					Gg_f_R + s * M, Gg_f_I + s * M,
-					Gg_f_R + (s - 1) * M, Gg_f_I + (s - 1) * M,
-					G1_R[seg], G1_I[seg]);
+					gf_R + s * M, gf_I + s * M,
+					gf_R + (s - 1) * M, gf_I + (s - 1) * M,
+					g1r, g1i);
 			}
 			s++;
 		}
 	}
 
-	// Partition function: Q = WeightedSum(Gg_f at last segment)
-	Real Q_R = lat->WeightedSum(Gg_f_R + (chainlength - 1) * M);
-	Real Q_I = lat->WeightedSum(Gg_f_I + (chainlength - 1) * M);
+	Real Q_R = lat->WeightedSum(gf_R + (chainlength - 1) * M);
+	lat->set_bounds(gf_R + (chainlength - 1) * M);
+	Real Q_I = lat->WeightedSum(gf_I + (chainlength - 1) * M);
+	lat->set_bounds(gf_I + (chainlength - 1) * M);
 
-	// norm = phibulk / (chainlength * Q)  [complex division: real / complex]
 	Real phibulk = mol->phibulk;
-	Real a = phibulk / chainlength;
+	Real a = phibulk * lat->volume / chainlength;
 	Real Q_mag2 = Q_R * Q_R + Q_I * Q_I;
 	if (Q_mag2 < 1e-30) Q_mag2 = 1e-30;
 	Real norm_R =  a * Q_R / Q_mag2;
 	Real norm_I = -a * Q_I / Q_mag2;
 
-	// Backward propagation + density accumulation
+	// backward pass + density accumulation
 	s = chainlength - 1;
 	for (int b = n_blocks - 1; b >= 0; b--) {
 		int seg = mol->mon_nr[b];
 		int N = mol->n_mon[b];
 		int comp = seg_to_comp[seg];
+		Real* g1r = raw_ptr(G1_R[seg]);
+		Real* g1i = raw_ptr(G1_I[seg]);
 
 		for (int k = N - 1; k >= 0; k--) {
 			if (s == chainlength - 1) {
-				Cp(Gg_b_R + (s % 2) * M, G1_R[seg], M);
-				Cp(Gg_b_I + (s % 2) * M, G1_I[seg], M);
+				stl::copy(EXEC_PAR G1_R[seg].begin(), G1_R[seg].end(),
+					Gg_b_R.begin() + (s % 2) * M);
+				stl::copy(EXEC_PAR G1_I[seg].begin(), G1_I[seg].end(),
+					Gg_b_I.begin() + (s % 2) * M);
 			} else {
 				prop->propagate_step(
-					Gg_b_R + (s % 2) * M, Gg_b_I + (s % 2) * M,
-					Gg_b_R + ((s + 1) % 2) * M, Gg_b_I + ((s + 1) % 2) * M,
-					G1_R[seg], G1_I[seg]);
+					gb_R + (s % 2) * M, gb_I + (s % 2) * M,
+					gb_R + ((s + 1) % 2) * M, gb_I + ((s + 1) % 2) * M,
+					g1r, g1i);
 			}
 
-			// phi += norm * Gg_f(s) * Gg_b(s) / G1
 			if (comp >= 0) {
-				Real* f_R = Gg_f_R + s * M;
-				Real* f_I = Gg_f_I + s * M;
-				Real* b_R = Gg_b_R + (s % 2) * M;
-				Real* b_I = Gg_b_I + (s % 2) * M;
-
-				for (int r = 0; r < M; r++) {
-					// product = Gg_f * Gg_b
-					Real p_R = f_R[r] * b_R[r] - f_I[r] * b_I[r];
-					Real p_I = f_R[r] * b_I[r] + f_I[r] * b_R[r];
-
-					// product / G1
-					Real g_R = G1_R[seg][r];
-					Real g_I = G1_I[seg][r];
-					Real g2 = g_R * g_R + g_I * g_I;
-					if (g2 < 1e-30) g2 = 1e-30;
-					Real d_R = (p_R * g_R + p_I * g_I) / g2;
-					Real d_I = (p_I * g_R - p_R * g_I) / g2;
-
-					// phi += norm * d
-					phi_R[comp][r] += norm_R * d_R - norm_I * d_I;
-					phi_I[comp][r] += norm_R * d_I + norm_I * d_R;
-				}
+				parallel_for(M, phi_accumulate_functor(
+					raw_ptr(phi_R[comp]), raw_ptr(phi_I[comp]),
+					gf_R + s * M, gf_I + s * M,
+					gb_R + (s % 2) * M, gb_I + (s % 2) * M,
+					g1r, g1i, norm_R, norm_I));
 			}
 
 			s--;
@@ -202,21 +220,17 @@ void CL_Dynamics::propagate_molecule(int mol_idx) {
 
 void CL_Dynamics::compute_densities() {
 	for (int i = 0; i < n_comp_; i++) {
-		Zero(phi_R[i], M);
-		Zero(phi_I[i], M);
+		stl::fill(EXEC_PAR phi_R[i].begin(), phi_R[i].end(), 0.0);
+		stl::fill(EXEC_PAR phi_I[i].begin(), phi_I[i].end(), 0.0);
 	}
 	for (int j = 0; j < n_mol_; j++)
 		propagate_molecule(j);
 }
 
 void CL_Dynamics::compute_forces() {
-	// force_i = Sigma_k chi_{ik} * phi_k + xi - W_i
-	// xi = (Sigma_i W_i - Sigma_i (chi*phi)_i) / n_comp
-
-	// First: accumulate chi*phi for each component
 	for (int i = 0; i < n_comp_; i++) {
-		Zero(force_R[i], M);
-		Zero(force_I[i], M);
+		stl::fill(EXEC_PAR force_R[i].begin(), force_R[i].end(), 0.0);
+		stl::fill(EXEC_PAR force_I[i].begin(), force_I[i].end(), 0.0);
 
 		int seg_i = sysmolmon[i];
 		for (int k = 0; k < n_seg_; k++) {
@@ -224,45 +238,60 @@ void CL_Dynamics::compute_forces() {
 			if (chi != 0.0) {
 				int comp_k = seg_to_comp[k];
 				if (comp_k >= 0) {
-					YplusisCtimesX(force_R[i], phi_R[comp_k], chi, M);
-					YplusisCtimesX(force_I[i], phi_I[comp_k], chi, M);
+					stl::transform(EXEC_PAR
+						phi_R[comp_k].begin(), phi_R[comp_k].end(),
+						force_R[i].begin(), force_R[i].begin(),
+						saxpy_functor(chi));
+					stl::transform(EXEC_PAR
+						phi_I[comp_k].begin(), phi_I[comp_k].end(),
+						force_I[i].begin(), force_I[i].begin(),
+						saxpy_functor(chi));
 				} else {
-					// Frozen segment: real density only
-					YplusisCtimesX(force_R[i], Seg[k]->phi_side, chi, M);
+					YplusisCtimesX(raw_ptr(force_R[i]), Seg[k]->phi_side, chi, M);
 				}
 			}
 		}
 	}
 
-	// Pressure: xi = (Sigma_i W_i - Sigma_i chi*phi_i) / n_comp
-	Zero(pressure_R, M);
-	Zero(pressure_I, M);
+	// total density
+	stl::fill(EXEC_PAR pressure_R.begin(), pressure_R.end(), 0.0);
+	stl::fill(EXEC_PAR pressure_I.begin(), pressure_I.end(), 0.0);
 	for (int i = 0; i < n_comp_; i++) {
-		for (int r = 0; r < M; r++) {
-			pressure_R[r] += W_R[i][r] - force_R[i][r];
-			pressure_I[r] += W_I[i][r] - force_I[i][r];
-		}
+		stl::transform(EXEC_PAR phi_R[i].begin(), phi_R[i].end(), pressure_R.begin(), pressure_R.begin(), stl::plus<Real>());
+		stl::transform(EXEC_PAR phi_I[i].begin(), phi_I[i].end(), pressure_I.begin(), pressure_I.begin(), stl::plus<Real>());
 	}
-	Norm(pressure_R, 1.0 / n_comp_, M);
-	Norm(pressure_I, 1.0 / n_comp_, M);
 
-	// force_i = chi*phi + xi - W_i
+	// compressibility penalty + field relaxation
 	for (int i = 0; i < n_comp_; i++) {
-		for (int r = 0; r < M; r++) {
-			force_R[i][r] += pressure_R[r] - W_R[i][r];
-			force_I[i][r] += pressure_I[r] - W_I[i][r];
-		}
+		stl::transform(EXEC_PAR pressure_R.begin(), pressure_R.end(), force_R[i].begin(), force_R[i].begin(), compressibility_functor(kappa_));
+		stl::transform(EXEC_PAR pressure_I.begin(), pressure_I.end(), force_I[i].begin(), force_I[i].begin(), saxpy_functor(kappa_));
+		stl::transform(EXEC_PAR force_R[i].begin(), force_R[i].end(), W_R[i].begin(), force_R[i].begin(), stl::minus<Real>());
+		stl::transform(EXEC_PAR force_I[i].begin(), force_I[i].end(), W_I[i].begin(), force_I[i].begin(), stl::minus<Real>());
 	}
 }
 
 void CL_Dynamics::update_fields() {
 	for (int i = 0; i < n_comp_; i++) {
-		for (int r = 0; r < M; r++) {
-			Real eta = normal_dist(rng);
-			W_R[i][r] += dt_ * force_R[i][r] + noise_scale * eta;
-			W_I[i][r] += dt_ * force_I[i][r];
-		}
+		stl::transform(EXEC_PAR force_R[i].begin(), force_R[i].end(), W_R[i].begin(), W_R[i].begin(), saxpy_functor(dt_));
+		stl::transform(EXEC_PAR force_I[i].begin(), force_I[i].end(), W_I[i].begin(), W_I[i].begin(), saxpy_functor(dt_));
+
+		for (int r = 0; r < M; r++)
+			h_noise[r] = noise_scale * normal_dist(rng);
+		d_noise = h_noise;
+		stl::transform(EXEC_PAR d_noise.begin(), d_noise.end(), W_R[i].begin(), W_R[i].begin(), stl::plus<Real>());
 	}
+}
+
+Real* CL_Dynamics::density_real(int comp) { return raw_ptr(phi_R[comp]); }
+Real* CL_Dynamics::density_imag(int comp) { return raw_ptr(phi_I[comp]); }
+
+void CL_Dynamics::sync_density_to_host() {
+	for (int i = 0; i < n_comp_; i++)
+		h_phi_R[i] = phi_R[i];
+}
+
+Real* CL_Dynamics::density_real_host(int comp) {
+	return h_phi_R[comp].data();
 }
 
 void CL_Dynamics::step() {

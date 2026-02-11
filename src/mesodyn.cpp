@@ -181,25 +181,34 @@ bool Mesodyn::mesodyn() {
     cl_dynamics->initialize(components);
 
     cout << "Starting Complex Langevin sampling (dt=" << cl_dt
-         << ", equilibration=" << cl_equilibration << ")" << endl;
+         << ", C=" << cl_concentration
+         << ", equilibration=" << cl_equilibration
+         << ", timebetweensaves=" << timebetweensaves << ")" << endl;
 
     for (t = 1; t < timesteps+1; t++) {
-      cout << "CL: t = " << t << " / " << timesteps << endl;
+      if (t % 100 == 0)
+        cout << "CL: t = " << t << " / " << timesteps << endl;
 
       cl_dynamics->step();
 
+      cl_dynamics->sync_density_to_host();
       vector<Real*> phi_R_vec(component_no);
       for (size_t i = 0; i < component_no; i++)
-        phi_R_vec[i] = cl_dynamics->density_real(i);
+        phi_R_vec[i] = cl_dynamics->density_real_host(i);
+
       cl_averager->accumulate(phi_R_vec, t);
 
-      if (cl_averager->sample_count() > 0)
-        for (size_t i = 0; i < component_no; i++)
-          Cp((Real*)components[i]->rho, cl_averager->mean(i), Lat[0]->M);
+      if (cl_averager->sample_count() > 0) {
+        for (size_t i = 0; i < component_no; i++) {
+          Real* src = cl_averager->mean(i);
+          stl::copy(src, src + Lat[0]->M, components[i]->rho.begin());
+        }
+      }
 
       order_parameter->execute();
-      cout << "Order parameter: " << order_parameter->attach()
-           << "  samples: " << cl_averager->sample_count() << endl;
+      if (t % 100 == 0)
+        cout << "Order parameter: " << order_parameter->attach()
+             << "  samples: " << cl_averager->sample_count() << endl;
 
       write_parameters();
 
