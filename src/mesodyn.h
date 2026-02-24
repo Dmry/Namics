@@ -90,6 +90,9 @@ private:
   const Real cl_dt;
   const size_t cl_equilibration;
   const Real cl_concentration;
+  const size_t expand_x;
+  const size_t expand_y;
+  const size_t expand_z;
 
     enum init {
     INIT_HOMOGENEOUS,
@@ -112,6 +115,7 @@ private:
   Real* device_vector_ptr_to_raw(stl::device_vector<Real>&);
   shared_ptr<Boundary1D> build_boundaries(const Lattice_object<size_t>&);
   void initialize_from_file(vector<Lattice_object<Real>>& densities);
+  void expand_density_data(vector<Lattice_object<Real>>& densities, const vector<vector<Real>>& file_data, size_t file_MX, size_t file_MY, size_t file_MZ);
   void initialize_homogeneous(vector<Lattice_object<Real>>& densities);
   Lattice_object<size_t> load_mask_from_sys();
 
